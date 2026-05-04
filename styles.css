@@ -944,7 +944,7 @@ body::before {
   gap: 40px;
 }
 
-/* WATCH VIEW */
+/* WATCH VIEW - REFINED */
 .page--watch {
   min-height: calc(100vh - var(--nav-h));
   padding-top: 0;
@@ -995,18 +995,19 @@ body::before {
   color: var(--text2);
 }
 
-.watch-sidebar__body {
-  flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border2) transparent;
-  padding: 12px 0;
+/* STICKY LANGUAGE TOGGLE */
+.watch-language-sticky {
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  z-index: 5;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
 .language-toggle {
   display: flex;
-  margin: 0 12px 12px;
   background: var(--surface2);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -1031,8 +1032,60 @@ body::before {
   color: white;
 }
 
+.watch-sidebar__body {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border2) transparent;
+  padding: 0;
+}
+
+/* EPISODE GROUP SELECTOR */
+.episode-group-selector {
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.group-chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding-bottom: 4px;
+}
+
+.group-chip {
+  padding: 6px 14px;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 20px;
+  color: var(--text2);
+  font-size: 0.75em;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.group-chip:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text1);
+}
+
+.group-chip.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+/* EPISODE LIST (WITHIN GROUP) */
 .episode-list {
-  padding: 0 8px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .ep-row {
@@ -1040,8 +1093,7 @@ body::before {
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 0 8px;
-  height: 38px;
+  padding: 8px 10px;
   border-radius: var(--radius-sm);
   border: none;
   background: transparent;
@@ -1056,13 +1108,11 @@ body::before {
 
 .ep-row.current {
   background: var(--accent);
-  border-radius: var(--radius-sm);
 }
 
 .ep-row.watched {
   border-left: 3px solid var(--accent);
   opacity: 0.6;
-  padding-left: 5px;
 }
 
 .ep-num {
@@ -1106,7 +1156,7 @@ body::before {
   font-size: 0.75em;
   color: var(--text3);
   padding: 8px 16px;
-  margin-top: 4px;
+  margin-top: 8px;
 }
 
 .watch-sidebar__footer {
@@ -1736,7 +1786,7 @@ body::before {
   }
 
   .watch-sidebar__body {
-    max-height: 200px;
+    max-height: 280px;
   }
 
   .library-grid {
@@ -1801,5 +1851,17 @@ body::before {
     gap: 8px;
     border-top: 1px solid var(--border);
     padding-top: 16px;
+  }
+
+  /* Mobile episode group chips - horizontal scroll */
+  .group-chips {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .episode-list {
+    max-height: 220px;
+    overflow-y: auto;
   }
 }

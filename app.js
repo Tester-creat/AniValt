@@ -169,6 +169,7 @@ let currentTab = "home";
 let previousTab = "home";
 let currentWatchId = null;
 let currentEpisode = 1;
+let currentEpisodeGroupIndex = 0;
 const episodeCache = {};
 const franchiseCache = {};
 let currentWatchOrderSort = "recommended";
@@ -208,6 +209,7 @@ const uiState = {
     sidebarCollapsed: false,
     streamLoaded: false,
     lastEndedKey: "",
+    episodeGroupIndex: 0,
   },
   overlay: null,
 };
@@ -1272,7 +1274,7 @@ function renderInlineStatusPicker(source, id) {
   }
 
   return `
-    <div class="status-picker">
+    <div class="status-picker" data-picker-id="${source}-${id}">
       <button type="button" class="status-picker-item" data-action="quick-add-status" data-source="${source}" data-id="${id}" data-status="plan-to-watch">Plan to Watch</button>
       <button type="button" class="status-picker-item" data-action="quick-add-status" data-source="${source}" data-id="${id}" data-status="queued">Queued</button>
       <button type="button" class="status-picker-item" data-action="quick-add-status" data-source="${source}" data-id="${id}" data-status="watching">Watching</button>
@@ -1306,7 +1308,7 @@ function renderQuickActionCard(anime, source) {
           ${existing
       ? `
                 <button type="button" class="btn-watch-now" data-action="open-watch" data-id="${existing.id}">&#9654; Watch</button>
-                ${getStatusChipHtml(existing.status)}
+                <button type="button" class="btn-remove" data-action="remove-from-library" data-id="${existing.id}">Remove</button>
               `
       : `
                 <button type="button" class="btn-watch-now" data-action="quick-watch-now" data-source="${source}" data-id="${anime.id}">&#9654; Watch Now</button>
@@ -1541,6 +1543,27 @@ function renderSearch() {
   `;
 }
 
+/* EPISODE GROUPING HELPERS */
+function getEpisodeGroups(totalEpisodes) {
+  const groups = [];
+  for (let i = 1; i <= totalEpisodes; i += 50) {
+    const start = i;
+    const end = Math.min(i + 49, totalEpisodes);
+    groups.push({ start, end, label: `${start}–${end}` });
+  }
+  return groups;
+}
+
+function getGroupForEpisode(episode, groups) {
+  for (let idx = 0; idx < groups.length; idx++) {
+    const group = groups[idx];
+    if (episode >= group.start && episode <= group.end) {
+      return idx;
+    }
+  }
+  return 0;
+}
+
 /* WATCH VIEW */
 function buildMegaPlayUrl(entry, episode, language) {
   if (!entry || !entry.anilistId) {
@@ -1605,10 +1628,18 @@ async function openWatchView(id) {
   uiState.watch.streamLoaded = false;
   uiState.watch.forceFallback = !entry.anilistId;
   uiState.watch.lastEndedKey = "";
+  
+  const totalEpisodes = getPlayableEpisodeCount(entry);
   currentEpisode =
     entry.episodes > 0 && entry.episodesWatched >= entry.episodes
       ? entry.episodes
-      : clamp((entry.episodesWatched || 0) + 1, 1, getPlayableEpisodeCount(entry));
+      : clamp((entry.episodesWatched || 0) + 1, 1, totalEpisodes);
+  
+  // Initialize episode group
+  const groups = getEpisodeGroups(totalEpisodes);
+  currentEpisodeGroupIndex = getGroupForEpisode(currentEpisode, groups);
+  uiState.watch.episodeGroupIndex = currentEpisodeGroupIndex;
+  
   uiState.overlay = null;
   uiState.inlineStatusPicker = null;
   uiState.navMenuOpen = false;
@@ -1650,6 +1681,7 @@ function closeWatchView(targetTab = previousTab || "home") {
   uiState.watch.forceFallback = false;
   uiState.watch.streamLoaded = false;
   uiState.watch.lastEndedKey = "";
+  currentEpisodeGroupIndex = 0;
   currentTab = NAV_TABS.includes(targetTab) ? targetTab : "home";
   renderApp();
 }
@@ -1660,7 +1692,17 @@ function switchEpisode(id, episode) {
     return;
   }
 
-  currentEpisode = clamp(episode, 1, getPlayableEpisodeCount(entry));
+  const totalEpisodes = getPlayableEpisodeCount(entry);
+  currentEpisode = clamp(episode, 1, totalEpisodes);
+  
+  // Update group if needed
+  const groups = getEpisodeGroups(totalEpisodes);
+  const newGroupIndex = getGroupForEpisode(currentEpisode, groups);
+  if (newGroupIndex !== currentEpisodeGroupIndex) {
+    currentEpisodeGroupIndex = newGroupIndex;
+    uiState.watch.episodeGroupIndex = currentEpisodeGroupIndex;
+  }
+  
   uiState.watch.forceFallback = !entry.anilistId;
   uiState.watch.streamLoaded = false;
   uiState.watch.lastEndedKey = "";
@@ -1747,18 +1789,57 @@ function handlePlaybackEnded() {
   const totalEpisodes = getPlayableEpisodeCount(entry);
   if (currentEpisode < totalEpisodes) {
     currentEpisode += 1;
+    // Update group if crossing boundary
+    const groups = getEpisodeGroups(totalEpisodes);
+    const newGroupIndex = getGroupForEpisode(currentEpisode, groups);
+    if (newGroupIndex !== currentEpisodeGroupIndex) {
+      currentEpisodeGroupIndex = newGroupIndex;
+      uiState.watch.episodeGroupIndex = currentEpisodeGroupIndex;
+    }
   }
   renderApp();
   showToast("Episode finished. Loading the next one.", "info");
 }
 
-function renderEpisodeListHtml(entry) {
+function renderEpisodeGroupSelector(entry, currentGroupIndex) {
+  const totalEpisodes = getPlayableEpisodeCount(entry);
+  const groups = getEpisodeGroups(totalEpisodes);
+  if (groups.length <= 1) return '';
+  
+  const chips = groups.map((group, idx) => `
+    <button 
+      type="button" 
+      class="group-chip ${idx === currentGroupIndex ? 'active' : ''}"
+      data-action="switch-episode-group"
+      data-group-index="${idx}"
+    >
+      ${escapeHtml(group.label)}
+    </button>
+  `).join('');
+  
+  return `
+    <div class="episode-group-selector">
+      <div class="group-chips">
+        ${chips}
+      </div>
+    </div>
+  `;
+}
+
+function renderEpisodeListHtml(entry, groupIndex) {
   const cachedEpisodeData = episodeCache[entry.anilistId] || { duration: null, episodes: {} };
   const totalEpisodes = getPlayableEpisodeCount(entry);
+  const groups = getEpisodeGroups(totalEpisodes);
+  const group = groups[groupIndex] || groups[0];
+  if (!group) return '<div class="empty-state">No episodes</div>';
+  
   const durationLabel = cachedEpisodeData.duration ? `${cachedEpisodeData.duration}m` : "--";
+  const episodesInGroup = [];
+  for (let ep = group.start; ep <= group.end; ep++) {
+    episodesInGroup.push(ep);
+  }
 
-  return Array.from({ length: totalEpisodes }, (_, index) => {
-    const episodeNumber = index + 1;
+  return episodesInGroup.map(episodeNumber => {
     const isCurrent = episodeNumber === currentEpisode;
     const isWatched = episodeNumber <= (entry.episodesWatched || 0);
     const episodeMeta = cachedEpisodeData.episodes[episodeNumber] || {};
@@ -1781,12 +1862,18 @@ function renderEpisodeListHtml(entry) {
 
 function paintEpisodeList(id) {
   const entry = getEntry(id);
+  const groupSelector = document.getElementById("episodeGroupSelector");
   const list = document.getElementById("episodeList");
-  if (!entry || !list) {
-    return;
-  }
+  if (!entry || !list) return;
 
-  list.innerHTML = renderEpisodeListHtml(entry);
+  const groups = getEpisodeGroups(getPlayableEpisodeCount(entry));
+  if (groupSelector && groups.length > 1) {
+    const selectorHtml = renderEpisodeGroupSelector(entry, currentEpisodeGroupIndex);
+    groupSelector.innerHTML = selectorHtml;
+    // Re-attach event listeners via afterRender delegation
+  }
+  
+  list.innerHTML = renderEpisodeListHtml(entry, currentEpisodeGroupIndex);
   const currentRow = list.querySelector(".ep-row.current");
   if (currentRow) {
     currentRow.scrollIntoView({ block: "nearest" });
@@ -2069,6 +2156,34 @@ function quickWatchNow(anilistData) {
   }
 }
 
+function removeFromLibrary(id) {
+  const entry = getEntry(id);
+  if (!entry) {
+    showToast("Title not found in library.", "error");
+    return;
+  }
+
+  const title = getDisplayTitle(entry);
+  delete userData[String(id)];
+  saveData();
+
+  if (currentWatchId === id) {
+    closeWatchView();
+  }
+
+  if (uiState.overlay && uiState.overlay.id === id) {
+    uiState.overlay = null;
+  }
+
+  // Close any open inline picker for this anime
+  if (uiState.inlineStatusPicker && uiState.inlineStatusPicker.id === id) {
+    uiState.inlineStatusPicker = null;
+  }
+
+  renderApp();
+  showToast(`Removed "${title}" from your library.`, "info");
+}
+
 function renderWatchView() {
   const entry = getEntry(currentWatchId);
   if (!entry) {
@@ -2079,8 +2194,6 @@ function renderWatchView() {
   const currentUrl = buildMegaPlayUrl(entry, currentEpisode, entry.language);
   const fallbackUrl = `https://hianime.re/search?keyword=${encodeURIComponent(getDisplayTitle(entry))}`;
   const progressLabel = `${entry.episodesWatched || 0} / ${entry.episodes || "?"} episodes watched`;
-
-  const episodeRows = renderEpisodeListHtml(entry);
 
   return `
     <div class="page page--watch">
@@ -2095,27 +2208,27 @@ function renderWatchView() {
             </div>
           </div>
 
-          <div class="watch-sidebar__body">>
+          <div class="watch-language-sticky">
             <div class="language-toggle" role="group" aria-label="Audio language">
               <button type="button" class="${entry.language === "sub" ? "is-active" : ""}" data-action="switch-language" data-lang="sub">SUB</button>
               <button type="button" class="${entry.language === "dub" ? "is-active" : ""}" data-action="switch-language" data-lang="dub">DUB</button>
             </div>
+          </div>
 
-            <div class="episode-list" id="episodeList">
-              ${episodeRows}
-            </div>
-
+          <div class="watch-sidebar__body">
+            <div id="episodeGroupSelector"></div>
+            <div class="episode-list" id="episodeList"></div>
             <div class="watch-progress-label">${escapeHtml(progressLabel)}</div>
             <div id="watchViewRatingContainer"></div>
 
-            <div>
+            <div style="padding: 0 12px 12px;">
               <label class="muted" for="watchStatusSelect">Status</label>
               <select id="watchStatusSelect" class="select" data-status-select="${entry.id}">
                 ${STATUS_OPTIONS.map((status) => `<option value="${status}" ${entry.status === status ? "selected" : ""}>${STATUS_LABELS[status]}</option>`).join("")}
               </select>
             </div>
 
-            <div>
+            <div style="padding: 0 12px 12px;">
               <div class="muted">Notes</div>
               <textarea
                 id="watchNotes"
@@ -2128,6 +2241,7 @@ function renderWatchView() {
 
           <div class="watch-sidebar__footer">
             <button type="button" class="action-button" data-action="watch-mark">Mark Watched</button>
+            <button type="button" class="secondary-button" data-action="remove-from-library" data-id="${entry.id}">Remove from Library</button>
             <button type="button" class="secondary-button" data-action="watch-back">&larr; Back</button>
           </div>
         </aside>
@@ -2215,8 +2329,11 @@ function addToLibrary(anilistData, status, options = {}) {
 
   userData[String(next.id)] = next;
   saveData();
-  uiState.overlay = null;
+  
+  // Close the inline picker after adding
   uiState.inlineStatusPicker = null;
+  uiState.overlay = null;
+  
   if (options.render !== false) {
     renderApp();
   }
@@ -2248,17 +2365,20 @@ function openStatusPicker(source, id) {
 
   uiState.inlineStatusPicker = { source, id: Number(id) };
   renderApp();
-  window.setTimeout(() => {
-    document.addEventListener(
-      "click",
-      (clickEvent) => {
-        if (!clickEvent.target.closest(".card-actions__picker-wrap")) {
-          uiState.inlineStatusPicker = null;
-          renderApp();
-        }
-      },
-      { once: true }
-    );
+  
+  // Click outside detection: but we must ensure clicks inside picker don't close it
+  const closeHandler = (clickEvent) => {
+    const pickerElement = document.querySelector(`.status-picker[data-picker-id="${source}-${id}"]`);
+    if (pickerElement && !pickerElement.contains(clickEvent.target)) {
+      uiState.inlineStatusPicker = null;
+      renderApp();
+      document.removeEventListener("click", closeHandler);
+    }
+  };
+  
+  // Delay to avoid immediate close from the same click that opened it
+  setTimeout(() => {
+    document.addEventListener("click", closeHandler);
   }, 0);
 }
 
@@ -2330,6 +2450,7 @@ function renderOverlay() {
           </div>
           <div class="overlay-card__actions">
             <button type="button" class="action-button" data-action="open-watch" data-id="${entry.id}">&#9654; Start Watching</button>
+            <button type="button" class="secondary-button" data-action="remove-from-library" data-id="${entry.id}">Remove from Library</button>
             <button type="button" class="nav-button" data-action="close-overlay">Close</button>
           </div>
         </div>
@@ -2640,6 +2761,8 @@ function handleClick(event) {
   }
 
   if (action === "quick-add-status") {
+    // Stop propagation to prevent the click from closing the picker immediately
+    event.stopPropagation();
     const media = getAniListResultBySource(actionTarget.dataset.source, Number(actionTarget.dataset.id));
     if (media) {
       addToLibrary(media, actionTarget.dataset.status);
@@ -2756,6 +2879,22 @@ function handleClick(event) {
   if (action === "skip-completion-rating") {
     document.querySelector(".rating-overlay")?.remove();
     finalizeCompletion(Number(actionTarget.dataset.id));
+    return;
+  }
+
+  if (action === "remove-from-library") {
+    const id = Number(actionTarget.dataset.id);
+    removeFromLibrary(id);
+    return;
+  }
+
+  if (action === "switch-episode-group") {
+    const newGroupIndex = parseInt(actionTarget.dataset.groupIndex, 10);
+    if (!isNaN(newGroupIndex) && currentWatchId) {
+      currentEpisodeGroupIndex = newGroupIndex;
+      uiState.watch.episodeGroupIndex = currentEpisodeGroupIndex;
+      renderApp();
+    }
     return;
   }
 }
