@@ -633,9 +633,9 @@ function renderMobileTabs() {
   return `
     <nav class="mobile-tabs" aria-label="Mobile navigation">
       ${NAV_TABS.map((tab) => {
-        const label = tab.charAt(0).toUpperCase() + tab.slice(1);
-        const active = currentTab === tab ? "is-active" : "";
-        return `
+    const label = tab.charAt(0).toUpperCase() + tab.slice(1);
+    const active = currentTab === tab ? "is-active" : "";
+    return `
           <button
             type="button"
             class="mobile-tab ${active}"
@@ -645,7 +645,7 @@ function renderMobileTabs() {
             ${label}
           </button>
         `;
-      }).join("")}
+  }).join("")}
     </nav>
   `;
 }
@@ -813,9 +813,8 @@ function renderMediaRowSection({
         </div>
         ${renderScrollControls(sectionId, hasEntries && entries.length > 3)}
       </div>
-      ${
-        hasEntries
-          ? `
+      ${hasEntries
+      ? `
             <div class="media-row">
               <div class="media-row__viewport" id="${sectionId}" data-row-track="${sectionId}">
                 <div class="media-row__track">
@@ -824,8 +823,8 @@ function renderMediaRowSection({
               </div>
             </div>
           `
-          : renderEmptyState(emptyIcon, emptyTitle, emptyText)
-      }
+      : renderEmptyState(emptyIcon, emptyTitle, emptyText)
+    }
     </section>
   `;
 }
@@ -865,16 +864,13 @@ function renderHome() {
       <section class="section">
         <div class="section__head">
           <div class="section__copy">
-            <div class="section__eyebrow">Home</div>
             <div class="section__title">Continue Watching</div>
-            <div class="section__sub">Your most recent sessions stay ready at the top.</div>
           </div>
           ${renderScrollControls("continueRow", continueWatching.length > 1)}
         </div>
 
-        ${
-          continueWatching.length
-            ? `
+        ${continueWatching.length
+      ? `
               <div class="media-row">
                 <div class="media-row__viewport" id="continueRow" data-row-track="continueRow">
                   <div class="media-row__track">
@@ -883,51 +879,49 @@ function renderHome() {
                 </div>
               </div>
             `
-            : renderEmptyState(
-                "TV",
-                "Nothing playing yet - add something to your watchlist to get started.",
-                "Start watching something to see it here."
-              )
-        }
+      : renderEmptyState(
+        "TV",
+        "Nothing playing yet - add something to your watchlist to get started.",
+        "Start watching something to see it here."
+      )
+    }
       </section>
 
-      ${renderStatsStrip()}
+      ${renderMediaRowSection({
+      sectionId: "queueRow",
+      title: "Next Up For You",
+      subtitle: "",
+      entries: queueEntries,
+      emptyIcon: "Q",
+      emptyTitle: "Nothing queued - add anime to your queue from Browse",
+      emptyText: "Your queue stays focused and easy to pick from once you add titles.",
+      context: "queue",
+      action: "open-watch",
+    })}
 
       ${renderMediaRowSection({
-        sectionId: "queueRow",
-        title: "Up Next in Queue",
-        subtitle: "Queued titles waiting for their turn.",
-        entries: queueEntries,
-        emptyIcon: "Q",
-        emptyTitle: "Nothing queued - add anime to your queue from Browse",
-        emptyText: "Your queue stays focused and easy to pick from once you add titles.",
-        context: "queue",
-        action: "open-watch",
-      })}
+      sectionId: "planRow",
+      title: "Saved For Later",
+      subtitle: "",
+      entries: planEntries,
+      emptyIcon: "P",
+      emptyTitle: "No future picks yet",
+      emptyText: "Use Browse or Search to save shows for later.",
+      context: "plan",
+      action: "open-detail",
+    })}
 
       ${renderMediaRowSection({
-        sectionId: "planRow",
-        title: "Plan to Watch",
-        subtitle: "Future picks you have not started yet.",
-        entries: planEntries,
-        emptyIcon: "P",
-        emptyTitle: "No future picks yet",
-        emptyText: "Use Browse or Search to save shows for later.",
-        context: "plan",
-        action: "open-detail",
-      })}
-
-      ${renderMediaRowSection({
-        sectionId: "completedRow",
-        title: "Recently Completed",
-        subtitle: "Finished series sorted by completion date.",
-        entries: completedEntries,
-        emptyIcon: "C",
-        emptyTitle: "No finished series yet",
-        emptyText: "Completed anime will show up here as soon as you finish them.",
-        context: "completed",
-        action: "open-watch",
-      })}
+      sectionId: "completedRow",
+      title: "Already Watched",
+      subtitle: "",
+      entries: completedEntries,
+      emptyIcon: "C",
+      emptyTitle: "No finished series yet",
+      emptyText: "Completed anime will show up here as soon as you finish them.",
+      context: "completed",
+      action: "open-watch",
+    })}
     </div>
   `;
 }
@@ -968,17 +962,17 @@ function renderLibrary() {
         <div class="toolbar-row">
           <div class="chip-group">
             ${[
-              ["all", "All"],
-              ["watching", "Watching"],
-              ["completed", "Completed"],
-              ["queued", "Queue"],
-              ["plan-to-watch", "Plan"],
-              ["dropped", "Dropped"],
-              ["untracked", "Untracked"],
-            ]
-              .map(([value, label]) => {
-                const active = uiState.library.filter === value ? "is-active" : "";
-                return `
+      ["all", "All"],
+      ["watching", "Watching"],
+      ["completed", "Completed"],
+      ["queued", "Queue"],
+      ["plan-to-watch", "Plan"],
+      ["dropped", "Dropped"],
+      ["untracked", "Untracked"],
+    ]
+      .map(([value, label]) => {
+        const active = uiState.library.filter === value ? "is-active" : "";
+        return `
                   <button
                     type="button"
                     class="chip ${active}"
@@ -988,8 +982,8 @@ function renderLibrary() {
                     ${label}
                   </button>
                 `;
-              })
-              .join("")}
+      })
+      .join("")}
           </div>
         </div>
 
@@ -1012,19 +1006,18 @@ function renderLibrary() {
         </div>
       </section>
 
-      ${
-        entries.length
-          ? `
+      ${entries.length
+      ? `
             <section class="library-grid">
               ${entries.map((entry) => renderPosterCard(entry, { context: "grid", action: "open-watch" })).join("")}
             </section>
           `
-          : renderEmptyState(
-              "AV",
-              "Your library is empty - head to Browse or Search to add anime",
-              "Once you add titles, this grid becomes your full local catalog."
-            )
-      }
+      : renderEmptyState(
+        "AV",
+        "Your library is empty - head to Browse or Search to add anime",
+        "Once you add titles, this grid becomes your full local catalog."
+      )
+    }
     </div>
   `;
 }
@@ -1248,14 +1241,13 @@ function renderDiscoverCard(media, source) {
         <div class="discover-card__meta">${escapeHtml(meta)}</div>
         <div class="discover-card__meta-row">
           ${media.status ? `<span class="chip-chip">${escapeHtml(media.status.replaceAll("_", " "))}</span>` : ""}
-          ${
-            existing
-              ? `
+          ${existing
+      ? `
                 <button type="button" class="action-button" data-action="open-watch" data-id="${existing.id}">
                   In Library
                 </button>
               `
-              : `
+      : `
                 <button
                   type="button"
                   class="action-button"
@@ -1266,7 +1258,7 @@ function renderDiscoverCard(media, source) {
                   Add to Library
                 </button>
               `
-          }
+    }
         </div>
       </div>
     </article>
@@ -1311,20 +1303,19 @@ function renderQuickActionCard(anime, source) {
           ${anime.status ? `<span class="chip-chip">${escapeHtml(String(anime.status).replaceAll("_", " "))}</span>` : ""}
         </div>
         <div class="card-actions">
-          ${
-            existing
-              ? `
+          ${existing
+      ? `
                 <button type="button" class="btn-watch-now" data-action="open-watch" data-id="${existing.id}">&#9654; Watch</button>
                 ${getStatusChipHtml(existing.status)}
               `
-              : `
+      : `
                 <button type="button" class="btn-watch-now" data-action="quick-watch-now" data-source="${source}" data-id="${anime.id}">&#9654; Watch Now</button>
                 <div class="card-actions__picker-wrap">
                   <button type="button" class="btn-add" data-action="open-status-picker" data-source="${source}" data-id="${anime.id}">+ Add</button>
                   ${renderInlineStatusPicker(source, anime.id)}
                 </div>
               `
-          }
+    }
         </div>
       </div>
     </article>
@@ -1351,13 +1342,13 @@ function renderBrowse() {
         <div class="toolbar-row">
           <div class="discover-modes">
             ${[
-              ["seasonal", "Seasonal"],
-              ["top", "Top Rated"],
-              ["popular", "Most Popular"],
-            ]
-              .map(([mode, label]) => {
-                const active = uiState.browse.mode === mode ? "is-active" : "";
-                return `
+      ["seasonal", "Seasonal"],
+      ["top", "Top Rated"],
+      ["popular", "Most Popular"],
+    ]
+      .map(([mode, label]) => {
+        const active = uiState.browse.mode === mode ? "is-active" : "";
+        return `
                   <button
                     type="button"
                     class="chip ${active}"
@@ -1367,14 +1358,14 @@ function renderBrowse() {
                     ${label}
                   </button>
                 `;
-              })
-              .join("")}
+      })
+      .join("")}
           </div>
 
           <div class="genre-pills">
             ${BROWSE_GENRES.map((genre) => {
-              const active = uiState.browse.mode === "genre" && uiState.browse.genre === genre ? "is-active" : "";
-              return `
+        const active = uiState.browse.mode === "genre" && uiState.browse.genre === genre ? "is-active" : "";
+        return `
                 <button
                   type="button"
                   class="chip ${active}"
@@ -1384,7 +1375,7 @@ function renderBrowse() {
                   ${genre}
                 </button>
               `;
-            }).join("")}
+      }).join("")}
           </div>
         </div>
 
@@ -1393,19 +1384,18 @@ function renderBrowse() {
         </div>
       </section>
 
-      ${
-        uiState.browse.loading
-          ? renderEmptyState("...", "Loading AniList results", "AniVault is pulling the latest browse results.")
-          : uiState.browse.error
-            ? renderEmptyState("!", "Browse is offline right now", uiState.browse.error)
-            : uiState.browse.results.length
-              ? `
-                <section class="browse-results">
+      ${uiState.browse.loading
+      ? renderEmptyState("...", "Loading AniList results", "AniVault is pulling the latest browse results.")
+      : uiState.browse.error
+        ? renderEmptyState("!", "Browse is offline right now", uiState.browse.error)
+        : uiState.browse.results.length
+          ? `
+                <section class="browse-results discover-grid">
                   ${uiState.browse.results.map((media) => renderBrowseCard(media)).join("")}
                 </section>
               `
-              : renderEmptyState("0", "No results yet", "Choose a browse mode to load anime from AniList.")
-      }
+          : renderEmptyState("0", "No results yet", "Choose a browse mode to load anime from AniList.")
+    }
     </div>
   `;
 }
@@ -1496,32 +1486,31 @@ function renderSearch() {
             ${renderScrollControls("searchLibraryRow", libraryMatches.length > 3)}
           </div>
 
-          ${
-            libraryMatches.length
-              ? `
+          ${libraryMatches.length
+      ? `
                 <div class="media-row">
                   <div class="media-row__viewport" id="searchLibraryRow" data-row-track="searchLibraryRow">
                     <div class="media-row__track">
                       ${libraryMatches.map((entry) => renderSearchCard({
-                        id: entry.id,
-                        title: { romaji: entry.title, english: entry.titleEnglish },
-                        coverImage: { large: entry.cover },
-                        episodes: entry.episodes,
-                        averageScore: entry.averageScore,
-                        status: entry.status,
-                      })).join("")}
+        id: entry.id,
+        title: { romaji: entry.title, english: entry.titleEnglish },
+        coverImage: { large: entry.cover },
+        episodes: entry.episodes,
+        averageScore: entry.averageScore,
+        status: entry.status,
+      })).join("")}
                     </div>
                   </div>
                 </div>
               `
-              : renderEmptyState(
-                  "MY",
-                  "Nothing in your library matches yet",
-                  uiState.search.query.trim()
-                    ? "Try a different title, genre, or note keyword."
-                    : "Start typing to search your saved anime first."
-                )
-          }
+      : renderEmptyState(
+        "MY",
+        "Nothing in your library matches yet",
+        uiState.search.query.trim()
+          ? "Try a different title, genre, or note keyword."
+          : "Start typing to search your saved anime first."
+      )
+    }
         </section>
 
         <section class="section">
@@ -1532,21 +1521,20 @@ function renderSearch() {
             </div>
           </div>
 
-          ${
-            uiState.search.loading
-              ? renderEmptyState("...", "Searching AniList", "AniVault is looking for matching anime.")
-              : uiState.search.error
-                ? renderEmptyState("!", "Search is offline right now", uiState.search.error)
-                : uiState.search.query.trim().length < 2
-                  ? renderEmptyState("GO", "Search AniList", "Type at least two characters to load AniList results.")
-                  : uiState.search.results.length
-                    ? `
+          ${uiState.search.loading
+      ? renderEmptyState("...", "Searching AniList", "AniVault is looking for matching anime.")
+      : uiState.search.error
+        ? renderEmptyState("!", "Search is offline right now", uiState.search.error)
+        : uiState.search.query.trim().length < 2
+          ? renderEmptyState("GO", "Search AniList", "Type at least two characters to load AniList results.")
+          : uiState.search.results.length
+            ? `
                       <div class="browse-results">
                         ${uiState.search.results.map((media) => renderSearchCard(media)).join("")}
                       </div>
                     `
-                    : renderEmptyState("0", "No AniList results found", "Try a different spelling or a shorter search term.")
-          }
+            : renderEmptyState("0", "No AniList results found", "Try a different spelling or a shorter search term.")
+    }
         </section>
       </div>
     </div>
@@ -1639,7 +1627,7 @@ async function openWatchView(id) {
           paintEpisodeList(id);
         }
       })
-      .catch(() => {});
+      .catch(() => { });
 
     fetchFranchiseRelations(entry.anilistId)
       .then(() => {
@@ -1857,11 +1845,11 @@ async function renderWatchOrder(anilistId, sortMode = "recommended") {
       : `
         <div class="wo-cards">
           ${sorted.map((item) => {
-            const libraryEntry = getEntryByAnimeId(item.id);
-            const title = (item.title && (item.title.english || item.title.romaji)) || "Untitled";
-            const relationLabel = formatRelationLabel(item);
-            const year = item.startDate && item.startDate.year ? item.startDate.year : (item.seasonYear || "Unknown");
-            return `
+        const libraryEntry = getEntryByAnimeId(item.id);
+        const title = (item.title && (item.title.english || item.title.romaji)) || "Untitled";
+        const relationLabel = formatRelationLabel(item);
+        const year = item.startDate && item.startDate.year ? item.startDate.year : (item.seasonYear || "Unknown");
+        return `
               <button type="button" class="wo-card" data-action="watch-order-card" data-id="${item.id}">
                 <div class="wo-cover-wrap">
                   ${item.coverImage && item.coverImage.large ? `<img class="wo-cover" src="${escapeHtml(item.coverImage.large)}" alt="${escapeHtml(title)}">` : `<div class="wo-cover"></div>`}
@@ -1872,14 +1860,13 @@ async function renderWatchOrder(anilistId, sortMode = "recommended") {
                 <div class="wo-card-meta">${escapeHtml(String(year))}</div>
                 <div class="wo-card-relation">${escapeHtml(relationLabel)}</div>
                 ${item.averageScore ? `<div class="wo-card-meta">&#11088; ${item.averageScore}</div>` : ""}
-                ${
-                  libraryEntry
-                    ? `<div class="wo-card-progress">${libraryEntry.episodesWatched || 0}/${libraryEntry.episodes || "?"} ep</div>`
-                    : `<div class="wo-card-meta">Not Added</div>`
-                }
+                ${libraryEntry
+            ? `<div class="wo-card-progress">${libraryEntry.episodesWatched || 0}/${libraryEntry.episodes || "?"} ep</div>`
+            : `<div class="wo-card-meta">Not Added</div>`
+          }
               </button>
             `;
-          }).join("")}
+      }).join("")}
         </div>
       `;
 
@@ -1928,9 +1915,9 @@ function renderRatingComponent(id, containerId) {
     <div class="rating-component">
       <div class="rating-blocks">
         ${Array.from({ length: 10 }, (_, index) => {
-          const score = index + 1;
-          return `<button type="button" class="rating-block" data-score="${score}">${score}</button>`;
-        }).join("")}
+    const score = index + 1;
+    return `<button type="button" class="rating-block" data-score="${score}">${score}</button>`;
+  }).join("")}
       </div>
       <div class="rating-label"></div>
     </div>
@@ -2108,11 +2095,7 @@ function renderWatchView() {
             </div>
           </div>
 
-          <button type="button" class="watch-sidebar__toggle" data-action="toggle-watch-sidebar">
-            ${uiState.watch.sidebarCollapsed ? "Show Episode Panel" : "Hide Episode Panel"}
-          </button>
-
-          <div class="watch-sidebar__body ${uiState.watch.sidebarCollapsed ? "is-collapsed" : ""}">
+          <div class="watch-sidebar__body">>
             <div class="language-toggle" role="group" aria-label="Audio language">
               <button type="button" class="${entry.language === "sub" ? "is-active" : ""}" data-action="switch-language" data-lang="sub">SUB</button>
               <button type="button" class="${entry.language === "dub" ? "is-active" : ""}" data-action="switch-language" data-lang="dub">DUB</button>
@@ -2151,9 +2134,8 @@ function renderWatchView() {
 
         <section class="watch-player">
           <div class="watch-player__frame">
-            ${
-              currentUrl && !uiState.watch.forceFallback
-                ? `
+            ${currentUrl && !uiState.watch.forceFallback
+      ? `
                   <iframe
                     src="${escapeHtml(currentUrl)}"
                     title="${escapeHtml(getDisplayTitle(entry))}"
@@ -2162,7 +2144,7 @@ function renderWatchView() {
                     data-watch-iframe
                   ></iframe>
                 `
-                : `
+      : `
                   <div class="watch-player__fallback">
                     <div class="watch-player__fallback-card">
                       <div class="watch-title">No stream available for this title via MegaPlay</div>
@@ -2175,7 +2157,7 @@ function renderWatchView() {
                     </div>
                   </div>
                 `
-            }
+    }
           </div>
 
           <div class="watch-player__controls">
@@ -2775,11 +2757,6 @@ function handleClick(event) {
     document.querySelector(".rating-overlay")?.remove();
     finalizeCompletion(Number(actionTarget.dataset.id));
     return;
-  }
-
-  if (action === "toggle-watch-sidebar") {
-    uiState.watch.sidebarCollapsed = !uiState.watch.sidebarCollapsed;
-    renderApp();
   }
 }
 
