@@ -78,6 +78,7 @@ a {
   --badge-dropped: #ef4444;
   --badge-queued: #f59e0b;
   --badge-plan: #a78bfa;
+  --badge-paused: #fbbf24;
   --radius: 10px;
   --radius-sm: 6px;
   --transition: 0.2s ease;
@@ -102,6 +103,7 @@ a {
   --badge-dropped: #d93636;
   --badge-queued: #cf8500;
   --badge-plan: #7f63e9;
+  --badge-paused: #b45309;
   --shadow-lg: 0 24px 60px rgba(47, 33, 20, 0.12);
   --shadow-md: 0 16px 40px rgba(47, 33, 20, 0.08);
 }
@@ -121,8 +123,7 @@ body::before {
   content: "";
   position: fixed;
   inset: 0;
-  background:
-    radial-gradient(ellipse 60% 40% at 80% 10%, rgba(232, 93, 38, 0.08) 0%, transparent 60%),
+  background: radial-gradient(ellipse 60% 40% at 80% 10%, rgba(232, 93, 38, 0.08) 0%, transparent 60%),
     radial-gradient(ellipse 50% 50% at 10% 90%, rgba(196, 75, 255, 0.06) 0%, transparent 60%);
   pointer-events: none;
   z-index: 0;
@@ -643,6 +644,11 @@ body::before {
   color: var(--badge-plan);
 }
 
+.badge--paused {
+  background: rgba(251, 191, 36, 0.2);
+  color: var(--badge-paused);
+}
+
 .badge--untracked {
   background: rgba(255, 255, 255, 0.08);
   color: var(--text3);
@@ -816,15 +822,23 @@ body::before {
 .discover-card {
   position: relative;
   border-radius: var(--radius);
-  overflow: hidden;
+  overflow: visible;
   background: var(--surface2);
   cursor: default;
+  /* Explicit z-index context needed so hovered card's dropdown
+     rises above sibling cards in the grid */
+  z-index: 1;
+}
+
+.discover-card:hover {
+  z-index: 20; /* Rise above sibling cards when hovered */
 }
 
 .discover-card__media {
   width: 100%;
   aspect-ratio: 2/3;
   overflow: hidden;
+  border-radius: var(--radius);
 }
 
 .discover-card__media img {
@@ -848,6 +862,12 @@ body::before {
   padding: 32px 10px 10px;
   transform: translateY(100%);
   transition: transform 0.25s ease;
+  border-radius: 0 0 var(--radius) var(--radius);
+  pointer-events: auto;
+  z-index: 10;
+  /* overflow: visible is critical — the status-picker dropdown must escape
+     the card's bottom edge. Do NOT set overflow: hidden here. */
+  overflow: visible;
 }
 
 .discover-card:hover .discover-card__body {
@@ -917,8 +937,26 @@ body::before {
   border-color: white;
 }
 
+.btn-remove {
+  padding: 7px 10px;
+  background: rgba(239, 68, 68, 0.2);
+  border: 1px solid var(--badge-dropped);
+  color: var(--badge-dropped);
+  border-radius: var(--radius-sm);
+  font-size: 0.75em;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.btn-remove:hover {
+  background: rgba(239, 68, 68, 0.4);
+}
+
 .card-actions__picker-wrap {
   position: relative;
+  /* Ensure picker dropdown can escape this container upward via the
+     card's overflow:visible chain. The z-index on .discover-card:hover
+     handles sibling card layering. */
 }
 
 /* SEARCH PAGE */
@@ -964,7 +1002,9 @@ body::before {
   height: calc(100vh - var(--nav-h));
   position: sticky;
   top: var(--nav-h);
-  overflow: hidden;
+  /* NOTE: overflow must NOT be hidden — it kills position:sticky on children.
+     The flex layout + overflow-y:auto on .watch-sidebar__body handles clipping. */
+  overflow: visible;
 }
 
 .watch-meta {
@@ -995,15 +1035,16 @@ body::before {
   color: var(--text2);
 }
 
-/* STICKY LANGUAGE TOGGLE */
+/* LANGUAGE TOGGLE — always visible as a flex child (no sticky needed) */
 .watch-language-sticky {
-  position: sticky;
-  top: 0;
+  /* position:sticky is intentionally removed — this element is a flex sibling
+     of the scroll container, so sticky has no effect. flex-shrink:0 ensures
+     it never collapses and is always visible at the top of the sidebar. */
+  flex-shrink: 0;
   background: var(--surface);
   z-index: 5;
   padding: 8px 12px;
   border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
 }
 
 .language-toggle {
@@ -1039,13 +1080,18 @@ body::before {
   scrollbar-width: thin;
   scrollbar-color: var(--border2) transparent;
   padding: 0;
+  display: flex;
+  flex-direction: column;
 }
 
-/* EPISODE GROUP SELECTOR */
+/* EPISODE GROUP SELECTOR - STICKY TOP */
 .episode-group-selector {
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  z-index: 4;
   padding: 12px;
   border-bottom: 1px solid var(--border);
-  background: var(--surface);
 }
 
 .group-chips {
@@ -1086,6 +1132,7 @@ body::before {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  flex: 1;
 }
 
 .ep-row {
@@ -1159,7 +1206,19 @@ body::before {
   margin-top: 8px;
 }
 
-.watch-sidebar__footer {
+/* BOTTOM BAR FOR RATING + STATUS — always visible as a flex child */
+.watch-sidebar-bottom {
+  /* position:sticky is removed — this is a flex sibling of the scroll container.
+     .watch-sidebar__body has flex:1 so it fills available space and pushes this
+     bar to the visual bottom naturally. flex-shrink:0 prevents compression. */
+  flex-shrink: 0;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding: 12px;
+  z-index: 4;
+}
+
+.watch-sidebar-footer-buttons {
   padding: 12px 16px;
   flex-shrink: 0;
   border-top: 1px solid var(--border);
@@ -1210,15 +1269,24 @@ body::before {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 20px;
+  gap: 8px;
+  padding: 10px 16px;
   background: var(--surface);
   border-top: 1px solid var(--border);
   flex-shrink: 0;
 }
 
-.watch-player__controls strong {
+.watch-player__ep-label {
   font-size: 0.875em;
   color: var(--text1);
+  flex: 1;
+  text-align: center;
+}
+
+.watch-fs-btn {
+  font-size: 1.1em;
+  padding: 6px 10px;
+  line-height: 1;
 }
 
 /* WATCH ORDER SECTION */
@@ -1365,12 +1433,13 @@ body::before {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 12px 16px;
+  padding: 8px 0;
 }
 
 .rating-blocks {
   display: flex;
   gap: 4px;
+  flex-wrap: wrap;
 }
 
 .rating-block {
@@ -1403,6 +1472,40 @@ body::before {
   color: var(--text2);
   font-weight: 600;
   min-height: 18px;
+}
+
+/* STATUS PICKER DROPDOWN (inline) */
+.status-picker {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-sm);
+  /* High z-index so it escapes the card stacking context and appears
+     above all other grid cards. Combined with z-index:20 on .discover-card:hover
+     this ensures the dropdown is never clipped by adjacent cards. */
+  z-index: 500;
+  overflow: hidden;
+  margin-top: 4px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+
+.status-picker-item {
+  padding: 9px 14px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: var(--text1);
+  font-size: 0.82em;
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--transition);
+}
+
+.status-picker-item:hover {
+  background: rgba(255, 255, 255, 0.06);
 }
 
 /* MODALS & OVERLAYS */
@@ -1480,36 +1583,6 @@ body::before {
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-
-/* STATUS PICKER */
-.status-picker {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  background: var(--surface2);
-  border: 1px solid var(--border2);
-  border-radius: var(--radius-sm);
-  z-index: 50;
-  overflow: hidden;
-  margin-top: 4px;
-}
-
-.status-picker-item {
-  padding: 9px 14px;
-  width: 100%;
-  background: transparent;
-  border: none;
-  color: var(--text1);
-  font-size: 0.82em;
-  cursor: pointer;
-  text-align: left;
-  transition: background var(--transition);
-}
-
-.status-picker-item:hover {
-  background: rgba(255, 255, 255, 0.06);
 }
 
 /* COMPLETION OVERLAY */
@@ -1781,12 +1854,14 @@ body::before {
   .watch-sidebar {
     position: static;
     height: auto;
+    overflow: visible; /* Maintain fix on mobile too */
     border-right: none;
     border-bottom: 1px solid var(--border);
   }
 
   .watch-sidebar__body {
     max-height: 280px;
+    overflow-y: auto;
   }
 
   .library-grid {

@@ -7,6 +7,7 @@ const STATUS_OPTIONS = [
   "queued",
   "plan-to-watch",
   "dropped",
+  "paused",
   "untracked",
 ];
 const STATUS_LABELS = {
@@ -15,6 +16,7 @@ const STATUS_LABELS = {
   queued: "In Queue",
   "plan-to-watch": "Plan to Watch",
   dropped: "Dropped",
+  paused: "Paused",
   untracked: "Untracked",
 };
 const TOAST_TITLES = {
@@ -218,6 +220,36 @@ let searchTimer = 0;
 let streamFallbackTimer = 0;
 let completionReturnTimer = 0;
 
+/* FULLSCREEN API HELPERS */
+function isFullscreen() {
+  return !!(
+    document.fullscreenElement ||
+    document.webkitFullscreenElement ||
+    document.mozFullScreenElement
+  );
+}
+
+function requestFullscreenOn(element) {
+  if (!element) return;
+  const fn = element.requestFullscreen || element.webkitRequestFullscreen || element.mozRequestFullScreen;
+  if (fn) fn.call(element).catch(() => {});
+}
+
+function exitFullscreenSafe() {
+  const fn = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen;
+  if (fn && isFullscreen()) fn.call(document).catch(() => {});
+}
+
+function toggleWatchFullscreen() {
+  const container = document.querySelector(".watch-player__frame");
+  if (!container) return;
+  if (isFullscreen()) {
+    exitFullscreenSafe();
+  } else {
+    requestFullscreenOn(container);
+  }
+}
+
 const app = document.getElementById("app");
 const toastZone = document.getElementById("toastZone");
 
@@ -327,6 +359,7 @@ function getSeasonFromDate(date = new Date()) {
 }
 
 function getStatusClass(status) {
+  if (status === "paused") return "badge badge--paused";
   return `badge badge--${status}`;
 }
 
@@ -689,6 +722,53 @@ function getRecentlyCompletedEntries() {
     .slice(0, 20);
 }
 
+function getRecentlyWatchedEntries(limit = 5) {
+  return getAnimeEntries()
+    .filter((entry) => entry.lastWatched > 0)
+    .sort((a, b) => (b.lastWatched || 0) - (a.lastWatched || 0))
+    .slice(0, limit);
+}
+
+function getRecommendationsForAnime(animeEntry, limit = 10) {
+  if (!animeEntry.genres.length) return [];
+  const otherEntries = getAnimeEntries().filter((e) => e.id !== animeEntry.id);
+  const scored = otherEntries.map((entry) => {
+    const matchCount = entry.genres.filter((g) => animeEntry.genres.includes(g)).length;
+    return { entry, score: matchCount };
+  });
+  return scored
+    .filter((s) => s.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((s) => s.entry);
+}
+
+function getTrendingRecommendations(limit = 10) {
+  return getAnimeEntries()
+    .filter((e) => e.averageScore > 0)
+    .sort((a, b) => (b.averageScore || 0) - (a.averageScore || 0))
+    .slice(0, limit);
+}
+
+function getGenreBasedRecommendations(limit = 10) {
+  const genreCount = new Map();
+  getAnimeEntries().forEach((entry) => {
+    entry.genres.forEach((g) => {
+      genreCount.set(g, (genreCount.get(g) || 0) + 1);
+    });
+  });
+  const topGenres = Array.from(genreCount.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([g]) => g);
+  if (topGenres.length === 0) return [];
+  const recommended = getAnimeEntries()
+    .filter((e) => e.genres.some((g) => topGenres.includes(g)))
+    .sort((a, b) => (b.averageScore || 0) - (a.averageScore || 0))
+    .slice(0, limit);
+  return recommended;
+}
+
 function renderEmptyState(icon, title, text) {
   return `
     <div class="empty-state">
@@ -861,6 +941,63 @@ function renderHome() {
   const planEntries = getEntriesByStatus("plan-to-watch");
   const completedEntries = getRecentlyCompletedEntries();
 
+  // Recommendation rows
+  const recentlyWatched = getRecentlyWatchedEntries(5);
+  const recommendationRows = [];
+  for (const watched of recentlyWatched) {
+    const recs = getRecommendationsForAnime(watched, 10);
+    if (recs.length > 0) {
+      recommendationRows.push({
+        title: `Because you watched ${getDisplayTitle(watched)}`,
+        entries: recs,
+        id: `rec-${watched.id}`,
+      });
+    }
+  }
+  const trendingRecs = getTrendingRecommendations(10);
+  const genreRecs = getGenreBasedRecommendations(10);
+
+  let recommendationHtml = "";
+  if (trendingRecs.length > 0) {
+    recommendationHtml += renderMediaRowSection({
+      sectionId: "trendingRow",
+      title: "Trending For You",
+      subtitle: "Popular among viewers like you",
+      entries: trendingRecs,
+      emptyIcon: "🔥",
+      emptyTitle: "No trending titles yet",
+      emptyText: "Watch more to get personalized picks.",
+      context: "grid",
+      action: "open-watch",
+    });
+  }
+  if (genreRecs.length > 0) {
+    recommendationHtml += renderMediaRowSection({
+      sectionId: "genreRecRow",
+      title: "Recommended For You",
+      subtitle: "Based on your favorite genres",
+      entries: genreRecs,
+      emptyIcon: "✨",
+      emptyTitle: "No recommendations yet",
+      emptyText: "Add more anime to your library to improve recommendations.",
+      context: "grid",
+      action: "open-watch",
+    });
+  }
+  for (const row of recommendationRows.slice(0, 3)) {
+    recommendationHtml += renderMediaRowSection({
+      sectionId: row.id,
+      title: row.title,
+      subtitle: "",
+      entries: row.entries,
+      emptyIcon: "🎬",
+      emptyTitle: "No recommendations",
+      emptyText: "Watch more to get personalized suggestions.",
+      context: "grid",
+      action: "open-watch",
+    });
+  }
+
   return `
     <div class="page page--home">
       <section class="section">
@@ -924,6 +1061,8 @@ function renderHome() {
       context: "completed",
       action: "open-watch",
     })}
+
+      ${recommendationHtml}
     </div>
   `;
 }
@@ -969,6 +1108,7 @@ function renderLibrary() {
       ["completed", "Completed"],
       ["queued", "Queue"],
       ["plan-to-watch", "Plan"],
+      ["paused", "Paused"],
       ["dropped", "Dropped"],
       ["untracked", "Untracked"],
     ]
@@ -1278,6 +1418,7 @@ function renderInlineStatusPicker(source, id) {
       <button type="button" class="status-picker-item" data-action="quick-add-status" data-source="${source}" data-id="${id}" data-status="plan-to-watch">Plan to Watch</button>
       <button type="button" class="status-picker-item" data-action="quick-add-status" data-source="${source}" data-id="${id}" data-status="queued">Queued</button>
       <button type="button" class="status-picker-item" data-action="quick-add-status" data-source="${source}" data-id="${id}" data-status="watching">Watching</button>
+      <button type="button" class="status-picker-item" data-action="quick-add-status" data-source="${source}" data-id="${id}" data-status="paused">Paused</button>
       <button type="button" class="status-picker-item" data-action="quick-add-status" data-source="${source}" data-id="${id}" data-status="dropped">Dropped</button>
     </div>
   `;
@@ -1419,13 +1560,16 @@ function scheduleAniListSearch(query) {
     uiState.search.loading = false;
     uiState.search.error = "";
     uiState.search.results = [];
-    queueRender();
+    // NOTE: No queueRender() here — caller (handleInput) already calls renderApp()
+    // to avoid a double-render that causes focus loss on the search input.
     return;
   }
 
   uiState.search.loading = true;
   uiState.search.error = "";
-  queueRender();
+  // NOTE: No immediate queueRender() here — caller already triggers a render.
+  // The 350ms timer callback (runAniListSearch) will call queueRender() after
+  // the user stops typing, which is safe because focus will not be interrupted.
 
   searchTimer = window.setTimeout(() => {
     runAniListSearch(query);
@@ -1706,7 +1850,20 @@ function switchEpisode(id, episode) {
   uiState.watch.forceFallback = !entry.anilistId;
   uiState.watch.streamLoaded = false;
   uiState.watch.lastEndedKey = "";
+
+  // Capture fullscreen state BEFORE the iframe is replaced by renderApp()
+  const shouldRestoreFullscreen = isFullscreen();
+  if (shouldRestoreFullscreen) exitFullscreenSafe();
+
   renderApp();
+
+  // Restore fullscreen on the new iframe container after render
+  if (shouldRestoreFullscreen) {
+    requestAnimationFrame(() => {
+      const container = document.querySelector(".watch-player__frame");
+      if (container) requestFullscreenOn(container);
+    });
+  }
 }
 
 function switchLanguage(id, language) {
@@ -1735,7 +1892,7 @@ function markEpisodeWatched(id, episode, options = {}) {
   entry.lastWatched = now;
   recordWatchTime(id, now);
 
-  if (entry.status === "plan-to-watch" || entry.status === "queued" || entry.status === "dropped" || entry.status === "untracked") {
+  if (entry.status === "plan-to-watch" || entry.status === "queued" || entry.status === "dropped" || entry.status === "paused" || entry.status === "untracked") {
     entry.status = "watching";
   }
 
@@ -1787,6 +1944,10 @@ function handlePlaybackEnded() {
   }
 
   const totalEpisodes = getPlayableEpisodeCount(entry);
+  // Capture fullscreen before renderApp() destroys the iframe
+  const shouldRestoreFullscreen = isFullscreen();
+  if (shouldRestoreFullscreen) exitFullscreenSafe();
+
   if (currentEpisode < totalEpisodes) {
     currentEpisode += 1;
     // Update group if crossing boundary
@@ -1799,6 +1960,13 @@ function handlePlaybackEnded() {
   }
   renderApp();
   showToast("Episode finished. Loading the next one.", "info");
+
+  if (shouldRestoreFullscreen) {
+    requestAnimationFrame(() => {
+      const container = document.querySelector(".watch-player__frame");
+      if (container) requestFullscreenOn(container);
+    });
+  }
 }
 
 function renderEpisodeGroupSelector(entry, currentGroupIndex) {
@@ -1870,7 +2038,6 @@ function paintEpisodeList(id) {
   if (groupSelector && groups.length > 1) {
     const selectorHtml = renderEpisodeGroupSelector(entry, currentEpisodeGroupIndex);
     groupSelector.innerHTML = selectorHtml;
-    // Re-attach event listeners via afterRender delegation
   }
   
   list.innerHTML = renderEpisodeListHtml(entry, currentEpisodeGroupIndex);
@@ -2175,7 +2342,6 @@ function removeFromLibrary(id) {
     uiState.overlay = null;
   }
 
-  // Close any open inline picker for this anime
   if (uiState.inlineStatusPicker && uiState.inlineStatusPicker.id === id) {
     uiState.inlineStatusPicker = null;
   }
@@ -2218,28 +2384,20 @@ function renderWatchView() {
           <div class="watch-sidebar__body">
             <div id="episodeGroupSelector"></div>
             <div class="episode-list" id="episodeList"></div>
+          </div>
+
+          <div class="watch-sidebar-bottom">
             <div class="watch-progress-label">${escapeHtml(progressLabel)}</div>
             <div id="watchViewRatingContainer"></div>
-
-            <div style="padding: 0 12px 12px;">
+            <div>
               <label class="muted" for="watchStatusSelect">Status</label>
               <select id="watchStatusSelect" class="select" data-status-select="${entry.id}">
                 ${STATUS_OPTIONS.map((status) => `<option value="${status}" ${entry.status === status ? "selected" : ""}>${STATUS_LABELS[status]}</option>`).join("")}
               </select>
             </div>
-
-            <div style="padding: 0 12px 12px;">
-              <div class="muted">Notes</div>
-              <textarea
-                id="watchNotes"
-                class="textarea"
-                data-notes-field="${entry.id}"
-                placeholder="Add private notes for this anime"
-              >${escapeHtml(entry.notes)}</textarea>
-            </div>
           </div>
 
-          <div class="watch-sidebar__footer">
+          <div class="watch-sidebar-footer-buttons">
             <button type="button" class="action-button" data-action="watch-mark">Mark Watched</button>
             <button type="button" class="secondary-button" data-action="remove-from-library" data-id="${entry.id}">Remove from Library</button>
             <button type="button" class="secondary-button" data-action="watch-back">&larr; Back</button>
@@ -2276,17 +2434,18 @@ function renderWatchView() {
 
           <div class="watch-player__controls">
             <button type="button" class="secondary-button" data-action="watch-prev" ${currentEpisode <= 1 ? "disabled" : ""}>
-              &larr; Previous Episode
+              &larr; Prev
             </button>
-            <strong>Episode ${currentEpisode} of ${entry.episodes || "?"}</strong>
+            <strong class="watch-player__ep-label">Ep ${currentEpisode} / ${entry.episodes || "?"}</strong>
             <button
               type="button"
               class="secondary-button"
               data-action="watch-next"
               ${currentEpisode >= totalEpisodes ? "disabled" : ""}
             >
-              Next Episode &rarr;
+              Next &rarr;
             </button>
+            <button type="button" class="secondary-button watch-fs-btn" data-action="toggle-fullscreen" title="Fullscreen (F)">&#x26F6;</button>
           </div>
         </section>
       </div>
@@ -2330,7 +2489,6 @@ function addToLibrary(anilistData, status, options = {}) {
   userData[String(next.id)] = next;
   saveData();
   
-  // Close the inline picker after adding
   uiState.inlineStatusPicker = null;
   uiState.overlay = null;
   
@@ -2366,7 +2524,6 @@ function openStatusPicker(source, id) {
   uiState.inlineStatusPicker = { source, id: Number(id) };
   renderApp();
   
-  // Click outside detection: but we must ensure clicks inside picker don't close it
   const closeHandler = (clickEvent) => {
     const pickerElement = document.querySelector(`.status-picker[data-picker-id="${source}-${id}"]`);
     if (pickerElement && !pickerElement.contains(clickEvent.target)) {
@@ -2376,7 +2533,6 @@ function openStatusPicker(source, id) {
     }
   };
   
-  // Delay to avoid immediate close from the same click that opened it
   setTimeout(() => {
     document.addEventListener("click", closeHandler);
   }, 0);
@@ -2761,7 +2917,6 @@ function handleClick(event) {
   }
 
   if (action === "quick-add-status") {
-    // Stop propagation to prevent the click from closing the picker immediately
     event.stopPropagation();
     const media = getAniListResultBySource(actionTarget.dataset.source, Number(actionTarget.dataset.id));
     if (media) {
@@ -2817,6 +2972,11 @@ function handleClick(event) {
     if (currentWatchId) {
       markEpisodeWatched(currentWatchId, currentEpisode);
     }
+    return;
+  }
+
+  if (action === "toggle-fullscreen") {
+    toggleWatchFullscreen();
     return;
   }
 
@@ -2985,6 +3145,37 @@ function handleKeydown(event) {
   if (event.key.toLowerCase() === "m") {
     event.preventDefault();
     markEpisodeWatched(currentWatchId, currentEpisode);
+    return;
+  }
+
+  // F — toggle fullscreen on the player frame
+  if (event.key.toLowerCase() === "f") {
+    event.preventDefault();
+    toggleWatchFullscreen();
+    return;
+  }
+
+  // Shift+N — next episode
+  if (event.shiftKey && event.key.toLowerCase() === "n") {
+    event.preventDefault();
+    switchEpisode(currentWatchId, currentEpisode + 1);
+    return;
+  }
+
+  // Shift+P — previous episode
+  if (event.shiftKey && event.key.toLowerCase() === "p") {
+    event.preventDefault();
+    switchEpisode(currentWatchId, currentEpisode - 1);
+    return;
+  }
+
+  // Space — send focus to the player iframe so it can handle play/pause
+  if (event.key === " ") {
+    const iframe = document.querySelector("[data-watch-iframe]");
+    if (iframe) {
+      event.preventDefault();
+      iframe.focus();
+    }
   }
 }
 
