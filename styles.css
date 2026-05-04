@@ -1424,3 +1424,419 @@ body::after {
     justify-content: space-between;
   }
 }
+
+/* ── CHANGES: Episode List | Watch Order | Rating | Quick Watch ── */
+
+.watch-sidebar {
+  overflow: hidden;
+}
+
+.watch-sidebar__body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.episode-list {
+  flex: 1;
+  min-height: 180px;
+  max-height: none;
+}
+
+.watch-sidebar__footer {
+  margin-top: 0;
+}
+
+/* Episode rows */
+.ep-row {
+  height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text1);
+  text-align: left;
+}
+
+.ep-row.current {
+  background: var(--accent);
+  color: white;
+  border-radius: var(--radius-sm);
+  border-color: transparent;
+  opacity: 1;
+}
+
+.ep-row.watched {
+  border-left: 3px solid var(--accent);
+  opacity: 0.6;
+}
+
+.ep-row:hover:not(.current) {
+  background: var(--surface2);
+}
+
+.ep-num {
+  font-weight: 700;
+  width: 36px;
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+.ep-row.current .ep-num {
+  color: white;
+}
+
+.ep-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ep-dur {
+  color: var(--text3);
+  font-size: 0.75em;
+  flex-shrink: 0;
+  min-width: 28px;
+  text-align: right;
+}
+
+.ep-row.current .ep-dur {
+  color: rgba(255, 255, 255, 0.84);
+}
+
+/* Watch order section */
+.watch-order-section {
+  width: 100%;
+  padding: 32px 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-top: 18px;
+}
+
+.wo-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.wo-title {
+  font-size: 1.1em;
+  font-weight: 700;
+}
+
+.wo-subtitle {
+  font-size: 0.8em;
+  color: var(--text3);
+  margin-top: 2px;
+}
+
+.wo-toggle {
+  display: flex;
+  gap: 4px;
+}
+
+.wo-toggle-btn {
+  padding: 6px 16px;
+  border-radius: 20px;
+  border: 1.5px solid var(--border2);
+  background: transparent;
+  color: var(--text2);
+  font-size: 0.8em;
+  cursor: pointer;
+}
+
+.wo-toggle-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.wo-cards {
+  display: flex;
+  gap: 14px;
+  overflow-x: auto;
+  padding-bottom: 12px;
+}
+
+.wo-card {
+  width: 150px;
+  flex-shrink: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.wo-card:hover .wo-cover {
+  transform: scale(1.04);
+  transition: var(--transition);
+}
+
+.wo-cover-wrap {
+  position: relative;
+  width: 150px;
+  height: 210px;
+}
+
+.wo-cover {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: var(--radius);
+}
+
+.wo-format-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  font-size: 0.65em;
+  font-weight: 700;
+  padding: 3px 7px;
+  border-radius: 4px;
+  color: white;
+}
+
+.wo-now-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-size: 0.6em;
+  font-weight: 700;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: var(--accent);
+  color: white;
+}
+
+.wo-card-title {
+  font-size: 0.8em;
+  font-weight: 600;
+  margin-top: 8px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.wo-card-meta {
+  font-size: 0.72em;
+  color: var(--text3);
+  margin-top: 3px;
+}
+
+.wo-card-relation {
+  font-size: 0.7em;
+  color: var(--text3);
+  text-transform: capitalize;
+}
+
+.wo-card-progress {
+  font-size: 0.72em;
+  color: var(--accent);
+  margin-top: 2px;
+}
+
+/* Rating component */
+.rating-component {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0;
+}
+
+.rating-blocks {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.rating-block {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  border: 1.5px solid var(--border2);
+  background: var(--surface2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.82em;
+  font-weight: 700;
+  color: var(--text3);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.15s;
+}
+
+.rating-block.filled {
+  color: white;
+  border-color: transparent;
+}
+
+.rating-block:hover {
+  transform: scale(1.08);
+}
+
+.rating-label {
+  font-size: 0.85em;
+  color: var(--text2);
+  font-weight: 600;
+  min-height: 20px;
+  transition: color 0.15s;
+}
+
+/* Completion rating overlay */
+.rating-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.2s ease;
+}
+
+.rating-overlay-box {
+  background: var(--surface);
+  border-radius: 16px;
+  padding: 32px;
+  max-width: 420px;
+  width: 90%;
+  text-align: center;
+  border: 1px solid var(--border2);
+}
+
+.rating-overlay-cover {
+  width: 100px;
+  height: 140px;
+  object-fit: cover;
+  border-radius: var(--radius);
+  margin: 0 auto 16px;
+}
+
+.rating-overlay-title {
+  font-size: 1.2em;
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+
+.rating-overlay-sub {
+  font-size: 0.85em;
+  color: var(--text2);
+  margin-bottom: 20px;
+}
+
+.rating-save-btn {
+  padding: 10px 32px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-weight: 700;
+  font-size: 0.9em;
+  cursor: pointer;
+  margin-top: 16px;
+  width: 100%;
+}
+
+.rating-skip-link {
+  display: block;
+  margin-top: 10px;
+  font-size: 0.8em;
+  color: var(--text3);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+/* Quick Watch split button */
+.card-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  align-items: center;
+  position: relative;
+}
+
+.btn-watch-now {
+  flex: 1;
+  padding: 7px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-weight: 700;
+  font-size: 0.8em;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.btn-watch-now:hover {
+  opacity: 0.85;
+}
+
+.btn-add {
+  padding: 7px 10px;
+  background: transparent;
+  border: 1.5px solid var(--border2);
+  color: var(--text2);
+  border-radius: var(--radius-sm);
+  font-size: 0.8em;
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s;
+}
+
+.btn-add:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.card-actions__picker-wrap {
+  position: relative;
+}
+
+.status-picker {
+  position: absolute;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-sm);
+  padding: 6px 0;
+  z-index: 100;
+  min-width: 150px;
+  box-shadow: 0 8px 24px #0006;
+  top: calc(100% + 6px);
+  right: 0;
+}
+
+.status-picker-item {
+  padding: 8px 14px;
+  font-size: 0.82em;
+  cursor: pointer;
+  color: var(--text2);
+  transition: background 0.15s, color 0.15s;
+  display: block;
+  width: 100%;
+  text-align: left;
+}
+
+.status-picker-item:hover {
+  background: var(--surface);
+  color: var(--text1);
+}
+
+.in-library-chip {
+  font-size: 0.72em;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+@media (max-width: 767px) {
+  .wo-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

@@ -96,18 +96,90 @@ const BROWSE_QUERY = `
     }
   }
 `;
+const EPISODE_DATA_QUERY = `
+  query ($id: Int) {
+    Media(id: $id) {
+      duration
+      streamingEpisodes {
+        title
+        thumbnail
+      }
+    }
+  }
+`;
+const FRANCHISE_RELATIONS_QUERY = `
+  query ($id: Int) {
+    Media(id: $id, type: ANIME) {
+      title {
+        romaji
+      }
+      relations {
+        edges {
+          relationType
+          node {
+            id
+            title {
+              romaji
+              english
+            }
+            coverImage {
+              large
+            }
+            type
+            format
+            seasonYear
+            startDate {
+              year
+              month
+              day
+            }
+            episodes
+            status
+            averageScore
+          }
+        }
+      }
+    }
+  }
+`;
+const WATCH_ORDER_RELATIONS = new Set([
+  "PREQUEL",
+  "SEQUEL",
+  "SIDE_STORY",
+  "ALTERNATIVE",
+  "SPIN_OFF",
+  "PARENT",
+  "COMPILATION",
+  "CONTAINS",
+]);
+const WATCH_ORDER_PRIORITY = {
+  PREQUEL: 1,
+  PARENT: 2,
+  current: 3,
+  SEQUEL: 4,
+  SIDE_STORY: 5,
+  SPIN_OFF: 6,
+  CONTAINS: 7,
+  COMPILATION: 8,
+  ALTERNATIVE: 9,
+};
 
 let userData = {};
 let currentTab = "home";
 let previousTab = "home";
 let currentWatchId = null;
 let currentEpisode = 1;
+const episodeCache = {};
+const franchiseCache = {};
+let currentWatchOrderSort = "recommended";
+let watchViewRequestToken = 0;
 
 const uiState = {
   theme: "dark",
   navMenuOpen: false,
   navSearchOpen: false,
   focusInputId: "",
+  inlineStatusPicker: null,
   library: {
     filter: "all",
     sort: "default",
@@ -258,6 +330,103 @@ function getStatusClass(status) {
 
 function getPlayableEpisodeCount(entry) {
   return Math.max(1, Number(entry.episodes) || Number(entry.episodesWatched) || 1);
+}
+
+function getRatingLabel(score) {
+  const labels = {
+    1: "Appalling",
+    2: "Horrible",
+    3: "Very Bad",
+    4: "Bad",
+    5: "Average",
+    6: "Fine",
+    7: "Good",
+    8: "Very Good",
+    9: "Great",
+    10: "Masterpiece",
+  };
+  return labels[score] || "Rate this anime";
+}
+
+function getRatingColor(score) {
+  if (score <= 0) {
+    return "";
+  }
+  if (score <= 2) {
+    return "#ef4444";
+  }
+  if (score <= 4) {
+    return "#f97316";
+  }
+  if (score <= 6) {
+    return "#eab308";
+  }
+  if (score <= 8) {
+    return "#22c55e";
+  }
+  return "#a855f7";
+}
+
+function getStatusChipHtml(status) {
+  return `<span class="${getStatusClass(status)} in-library-chip">&#10003; In Library - ${escapeHtml(STATUS_LABELS[status])}</span>`;
+}
+
+function getEntryByAnimeId(id) {
+  return Object.values(userData).find((entry) => isAnimeEntry(entry) && Number(entry.id) === Number(id)) || null;
+}
+
+function parseEpisodeTitle(title) {
+  const raw = String(title || "").trim();
+  if (!raw.toLowerCase().startsWith("episode")) {
+    return null;
+  }
+
+  const [left, ...rest] = raw.split(" - ");
+  const number = Number.parseInt(left.replace(/episode\s*/i, "").trim(), 10);
+  if (!Number.isFinite(number)) {
+    return null;
+  }
+
+  return {
+    number,
+    name: rest.join(" - ").trim() || `Episode ${number}`,
+  };
+}
+
+function getDateWeight(startDate) {
+  if (!startDate || !startDate.year) {
+    return Number.POSITIVE_INFINITY;
+  }
+  const year = Number(startDate.year) || 0;
+  const month = Number(startDate.month) || 0;
+  const day = Number(startDate.day) || 0;
+  return year * 10000 + month * 100 + day;
+}
+
+function formatRelationLabel(item) {
+  if (item.relationType === "current") {
+    return "Current";
+  }
+  if (item.relationType === "SIDE_STORY") {
+    return "Side story";
+  }
+  if (item.relationType === "SPIN_OFF") {
+    return "Spin off";
+  }
+  return String(item.relationType || "")
+    .toLowerCase()
+    .replaceAll("_", " ")
+    .replace(/^\w/, (match) => match.toUpperCase());
+}
+
+function getFormatBadgeColor(format) {
+  if (format === "MOVIE") {
+    return "var(--accent2)";
+  }
+  if (format === "OVA" || format === "ONA" || format === "SPECIAL") {
+    return "var(--badge-queued)";
+  }
+  return "var(--badge-watching)";
 }
 
 function getProgressPercent(entry) {
@@ -590,6 +759,10 @@ function renderPosterCard(entry, options = {}) {
         : context === "completed"
           ? rating || "Completed"
           : meta || STATUS_LABELS[entry.status];
+  const showScoreChip = context === "grid" || context === "completed";
+  const scoreChip = showScoreChip && entry.rating
+    ? `<span class="chip-chip">&#11088; ${entry.rating} - ${escapeHtml(getRatingLabel(entry.rating))}</span>`
+    : "";
 
   return `
     <button
@@ -607,6 +780,7 @@ function renderPosterCard(entry, options = {}) {
           ${entry.averageScore ? `<span class="chip-chip">Score ${entry.averageScore}</span>` : ""}
         </div>
         <div class="poster-card__title">${escapeHtml(getDisplayTitle(entry))}</div>
+        ${scoreChip}
         <div class="poster-card__meta">${escapeHtml(footerLabel)}</div>
         ${showProgress ? `
           <div class="progress-rail" aria-hidden="true">
@@ -878,6 +1052,108 @@ async function fetchAniList(query, variables) {
   return payload.data;
 }
 
+async function fetchEpisodeData(anilistId) {
+  if (!anilistId) {
+    return { duration: null, episodes: {} };
+  }
+
+  if (episodeCache[anilistId]) {
+    return episodeCache[anilistId];
+  }
+
+  const data = await fetchAniList(EPISODE_DATA_QUERY, { id: Number(anilistId) });
+  const media = data && data.Media ? data.Media : {};
+  const episodes = {};
+
+  (media.streamingEpisodes || []).forEach((streamingEpisode) => {
+    const parsed = parseEpisodeTitle(streamingEpisode.title);
+    if (!parsed) {
+      return;
+    }
+
+    episodes[parsed.number] = {
+      name: parsed.name,
+      thumbnail: streamingEpisode.thumbnail || "",
+    };
+  });
+
+  episodeCache[anilistId] = {
+    duration: Number.isFinite(Number(media.duration)) ? Number(media.duration) : null,
+    episodes,
+  };
+
+  return episodeCache[anilistId];
+}
+
+async function fetchFranchiseRelations(anilistId) {
+  if (!anilistId) {
+    return [];
+  }
+
+  if (franchiseCache[anilistId]) {
+    return franchiseCache[anilistId];
+  }
+
+  const data = await fetchAniList(FRANCHISE_RELATIONS_QUERY, { id: Number(anilistId) });
+  const media = data && data.Media ? data.Media : null;
+  const currentEntry = getEntryByAnimeId(anilistId);
+  const relations = [];
+
+  if (currentEntry) {
+    relations.push({
+      id: currentEntry.id,
+      title: {
+        romaji: currentEntry.title,
+        english: currentEntry.titleEnglish,
+      },
+      coverImage: { large: currentEntry.cover },
+      type: "ANIME",
+      format: "",
+      seasonYear: currentEntry.year || 0,
+      startDate: { year: currentEntry.year || 0, month: 0, day: 0 },
+      episodes: currentEntry.episodes || 0,
+      status: currentEntry.status,
+      averageScore: currentEntry.averageScore || 0,
+      relationType: "current",
+      isCurrent: true,
+    });
+  } else if (media) {
+    relations.push({
+      id: Number(anilistId),
+      title: {
+        romaji: media.title && media.title.romaji ? media.title.romaji : "Current Anime",
+        english: "",
+      },
+      coverImage: { large: "" },
+      type: "ANIME",
+      format: "",
+      seasonYear: 0,
+      startDate: { year: 0, month: 0, day: 0 },
+      episodes: 0,
+      status: "",
+      averageScore: 0,
+      relationType: "current",
+      isCurrent: true,
+    });
+  }
+
+  (((media || {}).relations || {}).edges || []).forEach((edge) => {
+    const node = edge && edge.node ? edge.node : null;
+    if (!node || node.type !== "ANIME" || !WATCH_ORDER_RELATIONS.has(edge.relationType)) {
+      return;
+    }
+
+    relations.push({
+      ...node,
+      relationType: edge.relationType,
+      isCurrent: false,
+    });
+  });
+
+  franchiseCache[anilistId] = relations;
+  return relations;
+}
+
 function adaptAniListMedia(media) {
   return {
     id: Number(media.id),
@@ -997,6 +1273,72 @@ function renderDiscoverCard(media, source) {
   `;
 }
 
+function renderInlineStatusPicker(source, id) {
+  const picker = uiState.inlineStatusPicker;
+  if (!picker || picker.source !== source || Number(picker.id) !== Number(id)) {
+    return "";
+  }
+
+  return `
+    <div class="status-picker">
+      <button type="button" class="status-picker-item" data-action="quick-add-status" data-source="${source}" data-id="${id}" data-status="plan-to-watch">Plan to Watch</button>
+      <button type="button" class="status-picker-item" data-action="quick-add-status" data-source="${source}" data-id="${id}" data-status="queued">Queued</button>
+      <button type="button" class="status-picker-item" data-action="quick-add-status" data-source="${source}" data-id="${id}" data-status="watching">Watching</button>
+      <button type="button" class="status-picker-item" data-action="quick-add-status" data-source="${source}" data-id="${id}" data-status="dropped">Dropped</button>
+    </div>
+  `;
+}
+
+function renderQuickActionCard(anime, source) {
+  const existing = getEntryByAnimeId(anime.id);
+  const title = anime.title && anime.title.english ? anime.title.english : anime.title.romaji;
+  const meta = [
+    anime.averageScore ? `Score ${anime.averageScore}` : "",
+    anime.episodes ? formatCount(anime.episodes, "episode") : "Episode total unknown",
+  ]
+    .filter(Boolean)
+    .join(" • ");
+
+  return `
+    <article class="discover-card">
+      <div class="discover-card__media">
+        ${anime.coverImage && anime.coverImage.large ? `<img src="${escapeHtml(anime.coverImage.large)}" alt="${escapeHtml(title)}">` : ""}
+      </div>
+      <div class="discover-card__body">
+        <div class="discover-card__title">${escapeHtml(title)}</div>
+        <div class="discover-card__meta">${escapeHtml(meta)}</div>
+        <div class="discover-card__meta-row">
+          ${anime.status ? `<span class="chip-chip">${escapeHtml(String(anime.status).replaceAll("_", " "))}</span>` : ""}
+        </div>
+        <div class="card-actions">
+          ${
+            existing
+              ? `
+                <button type="button" class="btn-watch-now" data-action="open-watch" data-id="${existing.id}">&#9654; Watch</button>
+                ${getStatusChipHtml(existing.status)}
+              `
+              : `
+                <button type="button" class="btn-watch-now" data-action="quick-watch-now" data-source="${source}" data-id="${anime.id}">&#9654; Watch Now</button>
+                <div class="card-actions__picker-wrap">
+                  <button type="button" class="btn-add" data-action="open-status-picker" data-source="${source}" data-id="${anime.id}">+ Add</button>
+                  ${renderInlineStatusPicker(source, anime.id)}
+                </div>
+              `
+          }
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function renderBrowseCard(anime) {
+  return renderQuickActionCard(anime, "browse");
+}
+
+function renderSearchCard(anime) {
+  return renderQuickActionCard(anime, "search");
+}
+
 function renderBrowse() {
   return `
     <div class="page page--browse">
@@ -1059,7 +1401,7 @@ function renderBrowse() {
             : uiState.browse.results.length
               ? `
                 <section class="browse-results">
-                  ${uiState.browse.results.map((media) => renderDiscoverCard(media, "browse")).join("")}
+                  ${uiState.browse.results.map((media) => renderBrowseCard(media)).join("")}
                 </section>
               `
               : renderEmptyState("0", "No results yet", "Choose a browse mode to load anime from AniList.")
@@ -1160,7 +1502,14 @@ function renderSearch() {
                 <div class="media-row">
                   <div class="media-row__viewport" id="searchLibraryRow" data-row-track="searchLibraryRow">
                     <div class="media-row__track">
-                      ${libraryMatches.map((entry) => renderPosterCard(entry, { context: "library", action: "open-watch" })).join("")}
+                      ${libraryMatches.map((entry) => renderSearchCard({
+                        id: entry.id,
+                        title: { romaji: entry.title, english: entry.titleEnglish },
+                        coverImage: { large: entry.cover },
+                        episodes: entry.episodes,
+                        averageScore: entry.averageScore,
+                        status: entry.status,
+                      })).join("")}
                     </div>
                   </div>
                 </div>
@@ -1193,7 +1542,7 @@ function renderSearch() {
                   : uiState.search.results.length
                     ? `
                       <div class="browse-results">
-                        ${uiState.search.results.map((media) => renderDiscoverCard(media, "search")).join("")}
+                        ${uiState.search.results.map((media) => renderSearchCard(media)).join("")}
                       </div>
                     `
                     : renderEmptyState("0", "No AniList results found", "Try a different spelling or a shorter search term.")
@@ -1256,7 +1605,7 @@ function setRating(id, rating) {
   renderApp();
 }
 
-function openWatchView(id) {
+async function openWatchView(id) {
   const entry = getEntry(id);
   if (!entry) {
     return;
@@ -1273,8 +1622,39 @@ function openWatchView(id) {
       ? entry.episodes
       : clamp((entry.episodesWatched || 0) + 1, 1, getPlayableEpisodeCount(entry));
   uiState.overlay = null;
+  uiState.inlineStatusPicker = null;
   uiState.navMenuOpen = false;
+  currentWatchOrderSort = "recommended";
+  const requestToken = ++watchViewRequestToken;
   renderApp();
+
+  renderRatingComponent(id, "watchViewRatingContainer");
+  paintEpisodeList(id);
+  renderWatchOrder(entry.anilistId || entry.id, "recommended");
+
+  if (entry.anilistId) {
+    fetchEpisodeData(entry.anilistId)
+      .then(() => {
+        if (currentWatchId === id && requestToken === watchViewRequestToken) {
+          paintEpisodeList(id);
+        }
+      })
+      .catch(() => {});
+
+    fetchFranchiseRelations(entry.anilistId)
+      .then(() => {
+        if (currentWatchId === id && requestToken === watchViewRequestToken) {
+          renderWatchOrder(entry.anilistId, "recommended");
+        }
+      })
+      .catch(() => {
+        if (currentWatchId === id && requestToken === watchViewRequestToken) {
+          renderWatchOrder(entry.anilistId, "recommended");
+        }
+      });
+  } else {
+    renderWatchOrder(entry.id, "recommended");
+  }
 }
 
 function closeWatchView(targetTab = previousTab || "home") {
@@ -1332,8 +1712,6 @@ function markEpisodeWatched(id, episode, options = {}) {
   let completed = false;
   if (entry.episodes > 0 && entry.episodesWatched >= entry.episodes) {
     entry.episodesWatched = entry.episodes;
-    entry.status = "completed";
-    entry.completedAt = now;
     completed = true;
   } else if (entry.status === "completed") {
     entry.status = "watching";
@@ -1346,21 +1724,12 @@ function markEpisodeWatched(id, episode, options = {}) {
     renderApp();
   }
 
-  if (!options.silent) {
-    if (completed) {
-      showToast("Series complete! AniVault moved it to Recently Completed.", "success");
-    } else {
-      showToast(`Marked episode ${targetEpisode} watched.`, "success");
-    }
+  if (!options.silent && !completed) {
+    showToast(`Marked episode ${targetEpisode} watched.`, "success");
   }
 
-  if (completed && currentWatchId === id) {
-    window.clearTimeout(completionReturnTimer);
-    completionReturnTimer = window.setTimeout(() => {
-      if (currentWatchId === id) {
-        closeWatchView("home");
-      }
-    }, 3000);
+  if (completed) {
+    showCompletionRatingPrompt(id);
   }
 
   return { completed, entry };
@@ -1384,8 +1753,6 @@ function handlePlaybackEnded() {
   }
 
   if (result.completed) {
-    renderApp();
-    showToast("Series complete! Returning to Home in 3 seconds.", "success");
     return;
   }
 
@@ -1397,21 +1764,322 @@ function handlePlaybackEnded() {
   showToast("Episode finished. Loading the next one.", "info");
 }
 
-function renderRatingButtons(entry) {
-  return Array.from({ length: 10 }, (_, index) => {
-    const value = index + 1;
-    const active = entry.rating === value ? "is-active" : "";
+function renderEpisodeListHtml(entry) {
+  const cachedEpisodeData = episodeCache[entry.anilistId] || { duration: null, episodes: {} };
+  const totalEpisodes = getPlayableEpisodeCount(entry);
+  const durationLabel = cachedEpisodeData.duration ? `${cachedEpisodeData.duration}m` : "--";
+
+  return Array.from({ length: totalEpisodes }, (_, index) => {
+    const episodeNumber = index + 1;
+    const isCurrent = episodeNumber === currentEpisode;
+    const isWatched = episodeNumber <= (entry.episodesWatched || 0);
+    const episodeMeta = cachedEpisodeData.episodes[episodeNumber] || {};
+    const episodeName = episodeMeta.name || `Episode ${episodeNumber}`;
+
     return `
       <button
         type="button"
-        class="${active}"
-        data-action="set-rating"
-        data-rating="${value}"
+        class="ep-row ${isCurrent ? "current" : ""} ${isWatched ? "watched" : ""}"
+        data-action="set-episode"
+        data-ep="${episodeNumber}"
       >
-        ${value}
+        <span class="ep-num">${isWatched ? "&#10003; " : ""}${episodeNumber}</span>
+        <span class="ep-name">${escapeHtml(episodeName)}</span>
+        <span class="ep-dur">${escapeHtml(durationLabel)}</span>
       </button>
     `;
   }).join("");
+}
+
+function paintEpisodeList(id) {
+  const entry = getEntry(id);
+  const list = document.getElementById("episodeList");
+  if (!entry || !list) {
+    return;
+  }
+
+  list.innerHTML = renderEpisodeListHtml(entry);
+  const currentRow = list.querySelector(".ep-row.current");
+  if (currentRow) {
+    currentRow.scrollIntoView({ block: "nearest" });
+  }
+}
+
+async function renderWatchOrder(anilistId, sortMode = "recommended") {
+  currentWatchOrderSort = sortMode;
+  const mount = document.getElementById("watchOrderMount");
+  if (!mount) {
+    return;
+  }
+
+  const relations = franchiseCache[anilistId] || [];
+  const currentLibraryEntry = getEntryByAnimeId(anilistId);
+  const currentFranchiseTitle =
+    (currentLibraryEntry && getDisplayTitle(currentLibraryEntry)) ||
+    ((relations[0] && relations[0].title && (relations[0].title.english || relations[0].title.romaji)) || "This Franchise");
+
+  if (!relations.length) {
+    mount.innerHTML = `
+      <section class="watch-order-section">
+        <div class="wo-header">
+          <div>
+            <div class="wo-title">Watch Order</div>
+            <div class="wo-subtitle">${escapeHtml(currentFranchiseTitle)} - Complete Guide</div>
+          </div>
+          <div class="wo-toggle">
+            <button type="button" class="wo-toggle-btn ${sortMode === "recommended" ? "active" : ""}" data-action="set-watch-order-sort" data-sort="recommended">Recommended</button>
+            <button type="button" class="wo-toggle-btn ${sortMode === "release" ? "active" : ""}" data-action="set-watch-order-sort" data-sort="release">Release Order</button>
+          </div>
+        </div>
+        ${renderEmptyState("...", "Loading watch order...", "AniVault is fetching the franchise guide from AniList.")}
+      </section>
+    `;
+    return;
+  }
+
+  const sorted = [...relations].sort((left, right) => {
+    if (sortMode === "release") {
+      return getDateWeight(left.startDate) - getDateWeight(right.startDate);
+    }
+
+    const priorityDiff =
+      (WATCH_ORDER_PRIORITY[left.relationType] || 99) -
+      (WATCH_ORDER_PRIORITY[right.relationType] || 99);
+    if (priorityDiff !== 0) {
+      return priorityDiff;
+    }
+    return getDateWeight(left.startDate) - getDateWeight(right.startDate);
+  });
+
+  const cards =
+    sorted.length <= 1
+      ? renderEmptyState("WO", "No related entries found for this franchise on AniList.", "AniList did not return more connected anime for this title.")
+      : `
+        <div class="wo-cards">
+          ${sorted.map((item) => {
+            const libraryEntry = getEntryByAnimeId(item.id);
+            const title = (item.title && (item.title.english || item.title.romaji)) || "Untitled";
+            const relationLabel = formatRelationLabel(item);
+            const year = item.startDate && item.startDate.year ? item.startDate.year : (item.seasonYear || "Unknown");
+            return `
+              <button type="button" class="wo-card" data-action="watch-order-card" data-id="${item.id}">
+                <div class="wo-cover-wrap">
+                  ${item.coverImage && item.coverImage.large ? `<img class="wo-cover" src="${escapeHtml(item.coverImage.large)}" alt="${escapeHtml(title)}">` : `<div class="wo-cover"></div>`}
+                  ${item.format ? `<span class="wo-format-badge" style="background:${getFormatBadgeColor(item.format)}">${escapeHtml(item.format.replaceAll("_", " "))}</span>` : ""}
+                  ${item.isCurrent ? `<span class="wo-now-badge">&#9679; NOW WATCHING</span>` : ""}
+                </div>
+                <div class="wo-card-title">${escapeHtml(title)}</div>
+                <div class="wo-card-meta">${escapeHtml(String(year))}</div>
+                <div class="wo-card-relation">${escapeHtml(relationLabel)}</div>
+                ${item.averageScore ? `<div class="wo-card-meta">&#11088; ${item.averageScore}</div>` : ""}
+                ${
+                  libraryEntry
+                    ? `<div class="wo-card-progress">${libraryEntry.episodesWatched || 0}/${libraryEntry.episodes || "?"} ep</div>`
+                    : `<div class="wo-card-meta">Not Added</div>`
+                }
+              </button>
+            `;
+          }).join("")}
+        </div>
+      `;
+
+  mount.innerHTML = `
+    <section class="watch-order-section">
+      <div class="wo-header">
+        <div>
+          <div class="wo-title">Watch Order</div>
+          <div class="wo-subtitle">${escapeHtml(currentFranchiseTitle)} - Complete Guide</div>
+        </div>
+        <div class="wo-toggle">
+          <button type="button" class="wo-toggle-btn ${sortMode === "recommended" ? "active" : ""}" data-action="set-watch-order-sort" data-sort="recommended">Recommended</button>
+          <button type="button" class="wo-toggle-btn ${sortMode === "release" ? "active" : ""}" data-action="set-watch-order-sort" data-sort="release">Release Order</button>
+        </div>
+      </div>
+      ${cards}
+    </section>
+  `;
+}
+
+function renderRatingComponent(id, containerId) {
+  const labels = {
+    1: "Appalling",
+    2: "Horrible",
+    3: "Very Bad",
+    4: "Bad",
+    5: "Average",
+    6: "Fine",
+    7: "Good",
+    8: "Very Good",
+    9: "Great",
+    10: "Masterpiece",
+  };
+  const entry = getEntry(id);
+  const container = document.getElementById(containerId);
+  if (!entry || !container) {
+    return;
+  }
+
+  const deferredMode = container.dataset.ratingMode === "deferred";
+  const savedRating = deferredMode
+    ? Number(container.dataset.selectedRating || entry.rating || 0)
+    : Number(entry.rating || 0);
+
+  container.innerHTML = `
+    <div class="rating-component">
+      <div class="rating-blocks">
+        ${Array.from({ length: 10 }, (_, index) => {
+          const score = index + 1;
+          return `<button type="button" class="rating-block" data-score="${score}">${score}</button>`;
+        }).join("")}
+      </div>
+      <div class="rating-label"></div>
+    </div>
+  `;
+
+  const blocksRow = container.querySelector(".rating-blocks");
+  const blocks = Array.from(container.querySelectorAll(".rating-block"));
+  const label = container.querySelector(".rating-label");
+
+  function updateDisplay(score) {
+    const activeColor = getRatingColor(score);
+    blocks.forEach((block, index) => {
+      const blockScore = index + 1;
+      const filled = score > 0 && blockScore <= score;
+      block.classList.toggle("filled", filled);
+      block.style.background = filled ? activeColor : "";
+      block.style.borderColor = filled ? "transparent" : "";
+      block.style.color = filled ? "#ffffff" : "";
+    });
+    label.textContent = score > 0 ? labels[score] : "Rate this anime";
+    label.style.color = score > 0 ? activeColor : "";
+  }
+
+  updateDisplay(savedRating);
+
+  blocks.forEach((block) => {
+    const score = Number(block.dataset.score);
+    block.addEventListener("mouseenter", () => {
+      updateDisplay(score);
+    });
+    block.addEventListener("click", () => {
+      const currentScore = deferredMode
+        ? Number(container.dataset.selectedRating || 0)
+        : Number(getEntry(id)?.rating || 0);
+      const nextScore = currentScore === score ? 0 : score;
+
+      if (deferredMode) {
+        container.dataset.selectedRating = String(nextScore);
+        updateDisplay(nextScore);
+        return;
+      }
+
+      const latestEntry = getEntry(id);
+      if (!latestEntry) {
+        return;
+      }
+      latestEntry.rating = nextScore;
+      saveData();
+      updateDisplay(nextScore);
+    });
+  });
+
+  blocksRow.addEventListener("mouseleave", () => {
+    const resetScore = deferredMode
+      ? Number(container.dataset.selectedRating || 0)
+      : Number(getEntry(id)?.rating || 0);
+    updateDisplay(resetScore);
+  });
+}
+
+function finalizeCompletion(id) {
+  const entry = getEntry(id);
+  if (!entry) {
+    return;
+  }
+
+  entry.status = "completed";
+  entry.completedAt = Date.now();
+  saveData();
+  renderApp();
+  showToast(`🎉 ${entry.title} marked complete!`, "success");
+
+  window.clearTimeout(completionReturnTimer);
+  completionReturnTimer = window.setTimeout(() => {
+    renderTab("home");
+  }, 3000);
+}
+
+function showCompletionRatingPrompt(id) {
+  const entry = getEntry(id);
+  if (!entry) {
+    return;
+  }
+
+  if (entry.rating > 0) {
+    finalizeCompletion(id);
+    return;
+  }
+
+  const existingOverlay = document.querySelector(".rating-overlay");
+  if (existingOverlay) {
+    existingOverlay.remove();
+  }
+
+  const overlay = document.createElement("div");
+  overlay.className = "rating-overlay";
+  overlay.innerHTML = `
+    <div class="rating-overlay-box">
+      ${entry.cover ? `<img class="rating-overlay-cover" src="${escapeHtml(entry.cover)}" alt="${escapeHtml(getDisplayTitle(entry))}">` : ""}
+      <div class="rating-overlay-title">${escapeHtml(getDisplayTitle(entry))}</div>
+      <div class="rating-overlay-sub">You finished it! How would you rate it?</div>
+      <div id="completionRatingContainer" data-rating-mode="deferred" data-selected-rating="0"></div>
+      <button type="button" class="rating-save-btn" data-action="save-completion-rating" data-id="${id}">Save Rating</button>
+      <button type="button" class="rating-skip-link" data-action="skip-completion-rating" data-id="${id}">Skip</button>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+  renderRatingComponent(id, "completionRatingContainer");
+
+  overlay.querySelector(".rating-save-btn")?.addEventListener("click", () => {
+    const overlayRating = document.getElementById("completionRatingContainer");
+    const score = Number((overlayRating && overlayRating.dataset.selectedRating) || 0);
+    const latestEntry = getEntry(id);
+    if (latestEntry && score > 0 && latestEntry.rating === 0) {
+      latestEntry.rating = score;
+      saveData();
+      showToast(`⭐ ${score}/10 - ${getRatingLabel(score)}`, "success");
+    }
+    overlay.remove();
+    finalizeCompletion(id);
+  });
+
+  overlay.querySelector(".rating-skip-link")?.addEventListener("click", () => {
+    overlay.remove();
+    finalizeCompletion(id);
+  });
+}
+
+async function handleWatchOrderCardClick(anilistId, cardData) {
+  const existing = getEntryByAnimeId(anilistId);
+  if (existing) {
+    openWatchView(existing.id);
+  } else {
+    await addToLibrary(cardData, "watching", { toast: false, render: false });
+    showToast(`Added ${cardData.title.romaji} to your library`, "info");
+    openWatchView(cardData.id);
+  }
+}
+
+function quickWatchNow(anilistData) {
+  const existing = getEntryByAnimeId(anilistData.id);
+  if (existing) {
+    openWatchView(existing.id);
+  } else {
+    addToLibrary(anilistData, "watching", { toast: false, render: false });
+    showToast(`Added ${anilistData.title.romaji} - opening player`, "info");
+    openWatchView(anilistData.id);
+  }
 }
 
 function renderWatchView() {
@@ -1425,26 +2093,11 @@ function renderWatchView() {
   const fallbackUrl = `https://hianime.re/search?keyword=${encodeURIComponent(getDisplayTitle(entry))}`;
   const progressLabel = `${entry.episodesWatched || 0} / ${entry.episodes || "?"} episodes watched`;
 
-  const episodeButtons = Array.from({ length: totalEpisodes }, (_, index) => {
-    const value = index + 1;
-    const isActive = value === currentEpisode;
-    const isWatched = value <= (entry.episodesWatched || 0);
-    return `
-      <button
-        type="button"
-        class="episode-button ${isActive ? "is-active" : ""} ${isWatched ? "is-watched" : ""}"
-        data-action="set-episode"
-        data-ep="${value}"
-      >
-        <span>Ep ${value}</span>
-        ${isWatched ? `<span class="episode-check">&#10003;</span>` : ""}
-      </button>
-    `;
-  }).join("");
+  const episodeRows = renderEpisodeListHtml(entry);
 
   return `
     <div class="page page--watch">
-      <div class="watch-layout">
+      <div class="watch-layout" id="watchViewContainer">
         <aside class="watch-sidebar">
           <div class="watch-meta">
             <div class="watch-title">${escapeHtml(getDisplayTitle(entry))}</div>
@@ -1465,16 +2118,18 @@ function renderWatchView() {
               <button type="button" class="${entry.language === "dub" ? "is-active" : ""}" data-action="switch-language" data-lang="dub">DUB</button>
             </div>
 
-            <label class="muted" for="watchStatusSelect">Status</label>
-            <select id="watchStatusSelect" class="select" data-status-select="${entry.id}">
-              ${STATUS_OPTIONS.map((status) => `<option value="${status}" ${entry.status === status ? "selected" : ""}>${STATUS_LABELS[status]}</option>`).join("")}
-            </select>
+            <div class="episode-list" id="episodeList">
+              ${episodeRows}
+            </div>
+
+            <div class="watch-progress-label">${escapeHtml(progressLabel)}</div>
+            <div id="watchViewRatingContainer"></div>
 
             <div>
-              <div class="muted">Your Rating</div>
-              <div class="rating-grid">
-                ${renderRatingButtons(entry)}
-              </div>
+              <label class="muted" for="watchStatusSelect">Status</label>
+              <select id="watchStatusSelect" class="select" data-status-select="${entry.id}">
+                ${STATUS_OPTIONS.map((status) => `<option value="${status}" ${entry.status === status ? "selected" : ""}>${STATUS_LABELS[status]}</option>`).join("")}
+              </select>
             </div>
 
             <div>
@@ -1486,16 +2141,11 @@ function renderWatchView() {
                 placeholder="Add private notes for this anime"
               >${escapeHtml(entry.notes)}</textarea>
             </div>
-
-            <div class="episode-list" id="episodeList">
-              ${episodeButtons}
-            </div>
           </div>
 
           <div class="watch-sidebar__footer">
-            <button type="button" class="secondary-button" data-action="watch-back">&larr; Back</button>
             <button type="button" class="action-button" data-action="watch-mark">Mark Watched</button>
-            <div class="watch-progress-label">${escapeHtml(progressLabel)}</div>
+            <button type="button" class="secondary-button" data-action="watch-back">&larr; Back</button>
           </div>
         </aside>
 
@@ -1544,12 +2194,13 @@ function renderWatchView() {
           </div>
         </section>
       </div>
+      <div id="watchOrderMount"></div>
     </div>
   `;
 }
 
 /* CARDS */
-function addToLibrary(anilistData, status) {
+function addToLibrary(anilistData, status, options = {}) {
   const media = adaptAniListMedia(anilistData);
   const existing = getEntry(media.id);
 
@@ -1583,8 +2234,13 @@ function addToLibrary(anilistData, status) {
   userData[String(next.id)] = next;
   saveData();
   uiState.overlay = null;
-  renderApp();
-  showToast(`${getDisplayTitle(next)} added to your library.`, "success");
+  uiState.inlineStatusPicker = null;
+  if (options.render !== false) {
+    renderApp();
+  }
+  if (options.toast !== false) {
+    showToast(`${getDisplayTitle(next)} added to your library.`, "success");
+  }
 }
 
 function getAniListResultBySource(source, id) {
@@ -1598,8 +2254,30 @@ function openStatusPicker(source, id) {
     return;
   }
 
-  uiState.overlay = { type: "status-picker", source, id: Number(id) };
+  if (
+    uiState.inlineStatusPicker &&
+    uiState.inlineStatusPicker.source === source &&
+    Number(uiState.inlineStatusPicker.id) === Number(id)
+  ) {
+    uiState.inlineStatusPicker = null;
+    renderApp();
+    return;
+  }
+
+  uiState.inlineStatusPicker = { source, id: Number(id) };
   renderApp();
+  window.setTimeout(() => {
+    document.addEventListener(
+      "click",
+      (clickEvent) => {
+        if (!clickEvent.target.closest(".card-actions__picker-wrap")) {
+          uiState.inlineStatusPicker = null;
+          renderApp();
+        }
+      },
+      { once: true }
+    );
+  }, 0);
 }
 
 function openDetailOverlay(id) {
@@ -1815,9 +2493,15 @@ function afterRender() {
   }
 
   if (currentWatchId) {
-    const activeEpisode = document.querySelector(".episode-button.is-active");
+    const activeEpisode = document.querySelector(".ep-row.current");
     if (activeEpisode) {
       activeEpisode.scrollIntoView({ block: "nearest" });
+    }
+    renderRatingComponent(currentWatchId, "watchViewRatingContainer");
+    paintEpisodeList(currentWatchId);
+    const currentEntry = getEntry(currentWatchId);
+    if (currentEntry && franchiseCache[currentEntry.anilistId || currentEntry.id]) {
+      renderWatchOrder(currentEntry.anilistId || currentEntry.id, currentWatchOrderSort);
     }
     setupWatchPlayer();
   } else {
@@ -1884,6 +2568,11 @@ function scrollRow(trackId, direction) {
 function handleClick(event) {
   const actionTarget = event.target.closest("[data-action]");
   if (!actionTarget) {
+    if (uiState.inlineStatusPicker && !event.target.closest(".card-actions__picker-wrap")) {
+      uiState.inlineStatusPicker = null;
+      renderApp();
+      return;
+    }
     if (event.target.hasAttribute("data-overlay-card") || event.target.closest("[data-overlay-card]")) {
       return;
     }
@@ -1960,6 +2649,22 @@ function handleClick(event) {
     return;
   }
 
+  if (action === "quick-watch-now") {
+    const media = getAniListResultBySource(actionTarget.dataset.source, Number(actionTarget.dataset.id));
+    if (media) {
+      quickWatchNow(media);
+    }
+    return;
+  }
+
+  if (action === "quick-add-status") {
+    const media = getAniListResultBySource(actionTarget.dataset.source, Number(actionTarget.dataset.id));
+    if (media) {
+      addToLibrary(media, actionTarget.dataset.status);
+    }
+    return;
+  }
+
   if (action === "picker-status") {
     const media = getAniListResultBySource(actionTarget.dataset.source, Number(actionTarget.dataset.id));
     if (media) {
@@ -2028,6 +2733,47 @@ function handleClick(event) {
     if (currentWatchId) {
       setRating(currentWatchId, Number(actionTarget.dataset.rating));
     }
+    return;
+  }
+
+  if (action === "set-watch-order-sort") {
+    const entry = getEntry(currentWatchId);
+    if (entry) {
+      renderWatchOrder(entry.anilistId || entry.id, actionTarget.dataset.sort);
+    }
+    return;
+  }
+
+  if (action === "watch-order-card") {
+    const entry = getEntry(currentWatchId);
+    if (entry) {
+      const relations = franchiseCache[entry.anilistId || entry.id] || [];
+      const cardData = relations.find((item) => Number(item.id) === Number(actionTarget.dataset.id));
+      if (cardData) {
+        handleWatchOrderCardClick(cardData.id, cardData);
+      }
+    }
+    return;
+  }
+
+  if (action === "save-completion-rating") {
+    const overlayRating = document.getElementById("completionRatingContainer");
+    const score = Number((overlayRating && overlayRating.dataset.selectedRating) || 0);
+    const targetId = Number(actionTarget.dataset.id);
+    const entry = getEntry(targetId);
+    if (entry && score > 0 && entry.rating === 0) {
+      entry.rating = score;
+      saveData();
+      showToast(`⭐ ${score}/10 - ${getRatingLabel(score)}`, "success");
+    }
+    document.querySelector(".rating-overlay")?.remove();
+    finalizeCompletion(targetId);
+    return;
+  }
+
+  if (action === "skip-completion-rating") {
+    document.querySelector(".rating-overlay")?.remove();
+    finalizeCompletion(Number(actionTarget.dataset.id));
     return;
   }
 
