@@ -108,10 +108,14 @@ let watchViewRequestToken = 0;
 
 const uiState = {
   theme: "dark",
+  accentColor: "#7c3aed",
+  compactMode: false,
+  reducedMotion: false,
   navMenuOpen: false,
   navSearchOpen: false,
   focusInputId: "",
   inlineStatusPicker: null,
+  volume: 1.0,
   library: { filter: "all", sort: "default", query: "" },
   browse: {
     mode: "seasonal", genre: "Action", title: "This Season",
@@ -121,7 +125,8 @@ const uiState = {
   search: { query: "", results: [], loading: false, error: "", requestId: 0 },
   watch: {
     forceFallback: false, sidebarCollapsed: false,
-    streamLoaded: false, lastEndedKey: "", episodeGroupIndex: 0
+    streamLoaded: false, lastEndedKey: "", episodeGroupIndex: 0,
+    currentProvider: 0
   },
   overlay: null
 };
@@ -310,6 +315,8 @@ function filterByText(entries, query) {
 }
 
 /* LAYOUT */
+const VOLUME_KEY = "anivault_volume";
+const SETTINGS_KEY = "anivault_settings";
 function loadData() {
   try {
     const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
@@ -319,12 +326,27 @@ function loadData() {
     showToast("Saved data could not be read. AniVault started with an empty library.", "error");
   }
   uiState.theme = userData.__meta && userData.__meta.theme === "light" ? "light" : "dark";
+  uiState.volume = parseFloat(localStorage.getItem(VOLUME_KEY) || "1.0");
+  const settings = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
+  uiState.accentColor = settings.accentColor || "#7c3aed";
+  uiState.compactMode = settings.compactMode || false;
+  uiState.reducedMotion = settings.reducedMotion || false;
+  document.documentElement.style.setProperty("--accent", uiState.accentColor);
+  document.documentElement.style.setProperty("--accent-bright", uiState.accentColor);
   document.documentElement.setAttribute("data-theme", uiState.theme);
+  document.body.classList.toggle("compact-mode", uiState.compactMode);
+  document.body.classList.toggle("reduced-motion", uiState.reducedMotion);
   reconcileLibrary();
 }
 function saveData() {
   userData.__meta = { theme: uiState.theme };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(userData));
+  localStorage.setItem(VOLUME_KEY, String(uiState.volume));
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+    accentColor: uiState.accentColor,
+    compactMode: uiState.compactMode,
+    reducedMotion: uiState.reducedMotion
+  }));
 }
 function reconcileLibrary() {
   let changed = false;
@@ -384,6 +406,7 @@ function renderTopNav() {
         <button type="button" class="nav-button" data-action="export">Export</button>
         <button type="button" class="nav-button" data-action="import">Import</button>
         <button type="button" class="nav-button" data-action="toggle-theme">${uiState.theme === "dark" ? "Light" : "Dark"}</button>
+        <button type="button" class="icon-button" data-action="open-settings" aria-label="Settings" title="Settings">⚙</button>
       </div>
       <button type="button" class="icon-button topnav__hamburger" data-action="toggle-menu" aria-label="Open menu"><span class="hamburger"><span></span></span></button>
     </div>
@@ -854,9 +877,16 @@ function getGroupForEpisode(episode, groups) {
 }
 
 /* WATCH VIEW */
-function buildMegaPlayUrl(entry, episode, language) {
+const STREAM_PROVIDERS = [
+  { name: "MegaPlay", buildUrl: (entry, ep, lang) => `https://megaplay.buzz/stream/ani/${entry.anilistId}/${ep}/${lang}` },
+  { name: "HiAnime", buildUrl: (entry, ep, lang) => `https://hianime.to/watch/${entry.anilistId.replace('anime/', '')}-${entry.anilistId}?ep=${ep}` },
+  { name: "GogoAnime", buildUrl: (entry, ep, lang) => `https://gogoanime.kiwi/arcade/${entry.anilistId}-episode-${ep}` },
+];
+
+function buildStreamUrl(entry, episode, language, providerIndex = 0) {
   if (!entry || !entry.anilistId) return "";
-  return `https://megaplay.buzz/stream/ani/${entry.anilistId}/${episode}/${language}`;
+  const provider = STREAM_PROVIDERS[providerIndex] || STREAM_PROVIDERS[0];
+  return provider.buildUrl(entry, episode, language);
 }
 function recordWatchTime(id, timestamp = Date.now()) {
   const entry = getEntry(id); if (!entry) return;
@@ -956,7 +986,8 @@ function renderEpisodeListHtml(entry, groupIndex) {
     const isCurrent = episodeNumber === currentEpisode, isWatched = episodeNumber <= (entry.episodesWatched || 0);
     const episodeMeta = cachedEpisodeData.episodes[episodeNumber] || {};
     const episodeName = episodeMeta.name || `Episode ${episodeNumber}`;
-    return `<button type="button" class="ep-row ${isCurrent ? "current" : ""} ${isWatched ? "watched" : ""}" data-action="set-episode" data-ep="${episodeNumber}"><span class="ep-num">${isWatched ? " &#10003; " : ""}${episodeNumber}</span><span class="ep-name">${escapeHtml(episodeName)}</span><span class="ep-dur">${escapeHtml(durationLabel)}</span></button>`;
+    const thumbnail = episodeMeta.thumbnail || "";
+    return `<button type="button" class="ep-row ${isCurrent ? "current" : ""} ${isWatched ? "watched" : ""}" data-action="set-episode" data-ep="${episodeNumber}"><span class="ep-num">${isWatched ? " &#10003; " : ""}${episodeNumber}</span><span class="ep-name">${escapeHtml(episodeName)}</span><span class="ep-dur">${escapeHtml(durationLabel)}</span>${thumbnail ? `<div class="ep-thumbnail-preview"><img src="${escapeHtml(thumbnail)}" alt="${escapeHtml(episodeName)}"></div>` : ""}</button>`;
   }).join("");
 }
 function paintEpisodeList(id) {
@@ -1057,7 +1088,8 @@ function removeFromLibrary(id) {
 function renderWatchView() {
   const entry = getEntry(currentWatchId); if (!entry) return renderEmptyState("!", "Title missing", "This anime is no longer in your library.");
   const totalEpisodes = getPlayableEpisodeCount(entry);
-  const currentUrl = buildMegaPlayUrl(entry, currentEpisode, entry.language);
+  const currentUrl = buildStreamUrl(entry, currentEpisode, entry.language, uiState.watch.currentProvider);
+  const provider = STREAM_PROVIDERS[uiState.watch.currentProvider] || STREAM_PROVIDERS[0];
   const fallbackUrl = `https://hianime.re/search?keyword=${encodeURIComponent(getDisplayTitle(entry))}`;
   const progressLabel = `${entry.episodesWatched || 0} / ${entry.episodes || "?"} episodes watched`;
   return `<div class="page page--watch"><div class="watch-layout" id="watchViewContainer">
@@ -1069,8 +1101,8 @@ function renderWatchView() {
       <div class="watch-sidebar-footer-buttons"><button type="button" class="action-button" data-action="watch-mark">Mark Watched</button><button type="button" class="secondary-button" data-action="remove-from-library" data-id="${entry.id}">Remove from Library</button><button type="button" class="secondary-button" data-action="watch-back"> &larr; Back</button></div>
     </aside>
     <section class="watch-player">
-      <div class="watch-player__frame">${currentUrl && !uiState.watch.forceFallback ? `<iframe src="${escapeHtml(currentUrl)}" title="${escapeHtml(getDisplayTitle(entry))}" allow="autoplay; fullscreen" allowfullscreen data-watch-iframe></iframe>` : `<div class="watch-player__fallback"><div class="watch-player__fallback-card"><div class="watch-title">No stream available for this title via MegaPlay</div><div class="muted">Come back and mark episodes watched manually using the list on the left.</div><a class="action-button" href="${escapeHtml(fallbackUrl)}" target="_blank" rel="noopener">Search on HiAnime -&gt;</a></div></div>`}</div>
-      <div class="watch-player__controls"><button type="button" class="secondary-button" data-action="watch-prev" ${currentEpisode <= 1 ? "disabled" : ""}>&larr; Prev</button><strong class="watch-player__ep-label">Ep ${currentEpisode} / ${entry.episodes || "?"}</strong><button type="button" class="secondary-button" data-action="watch-next" ${currentEpisode >= totalEpisodes ? "disabled" : ""}>Next &rarr;</button><button type="button" class="secondary-button watch-fs-btn" data-action="toggle-fullscreen" title="Fullscreen (F)">&#x26F6;</button></div>
+      <div class="watch-player__frame">${currentUrl && !uiState.watch.forceFallback ? `<iframe src="${escapeHtml(currentUrl)}" title="${escapeHtml(getDisplayTitle(entry))}" allow="autoplay; fullscreen" allowfullscreen data-watch-iframe></iframe>` : `<div class="watch-player__fallback"><div class="watch-player__fallback-card"><div class="watch-title">No stream available for this title via ${provider.name}</div><div class="muted">Come back and mark episodes watched manually using the list on the left.</div><a class="action-button" href="${escapeHtml(fallbackUrl)}" target="_blank" rel="noopener">Search on HiAnime -&gt;</a></div></div>`}</div>
+      <div class="watch-player__controls"><button type="button" class="secondary-button" data-action="watch-prev" ${currentEpisode <= 1 ? "disabled" : ""}>&larr; Prev</button><strong class="watch-player__ep-label">Ep ${currentEpisode} / ${entry.episodes || "?"}</strong><button type="button" class="secondary-button" data-action="watch-next" ${currentEpisode >= totalEpisodes ? "disabled" : ""}>Next &rarr;</button><button type="button" class="secondary-button" data-action="switch-provider" ${STREAM_PROVIDERS.length <= 1 ? "disabled" : ""} title="Switch provider">${provider.name}</button><button type="button" class="secondary-button watch-fs-btn" data-action="toggle-fullscreen" title="Fullscreen (F)">&#x26F6;</button></div>
     </section>
   </div><div id="watchOrderMount"></div></div>`;
 }
@@ -1108,6 +1140,46 @@ function renderOverlay() {
   if (uiState.overlay.type === "detail") {
     const entry = getEntry(uiState.overlay.id); if (!entry) return "";
     return `<div class="overlay" data-action="close-overlay"><div class="overlay-card" role="dialog" aria-modal="true" aria-label="Anime details" data-overlay-card><div class="overlay-card__hero"><div class="overlay-card__cover">${entry.cover ? `<img src="${escapeHtml(entry.cover)}" alt="${escapeHtml(getDisplayTitle(entry))}">` : ""}</div><div class="overlay-card__meta"><div class="overlay-card__title">${escapeHtml(getDisplayTitle(entry))}</div><div class="muted">${escapeHtml(formatCount(entry.episodes || 0, "episode"))}${entry.year ? ` • ${entry.year}` : ""}</div><div class="watch-meta__row"><span class="${getStatusClass(entry.status)}">${escapeHtml(STATUS_LABELS[entry.status])}</span>${entry.averageScore ? `<span class="watch-badge">AniList ${entry.averageScore}</span>` : ""}</div><select class="select" data-status-select="${entry.id}">${STATUS_OPTIONS.map(status => `<option value="${status}" ${entry.status === status ? "selected" : ""}>${STATUS_LABELS[status]}</option>`).join("")}</select></div></div><div class="overlay-card__actions"><button type="button" class="action-button" data-action="open-watch" data-id="${entry.id}"> &#9654; Start Watching</button><button type="button" class="secondary-button" data-action="remove-from-library" data-id="${entry.id}">Remove from Library</button><button type="button" class="nav-button" data-action="close-overlay">Close</button></div></div></div>`;
+  }
+  if (uiState.overlay.type === "settings") {
+    const accentColors = [
+      { name: "Violet", value: "#7c3aed" },
+      { name: "Blue", value: "#2563eb" },
+      { name: "Cyan", value: "#0891b2" },
+      { name: "Emerald", value: "#059669" },
+      { name: "Orange", value: "#ea580c" },
+      { name: "Pink", value: "#db2777" },
+      { name: "Red", value: "#dc2626" },
+      { name: "Yellow", value: "#ca8a04" }
+    ];
+    return `<div class="overlay" data-action="close-overlay"><div class="overlay-card" role="dialog" aria-modal="true" aria-label="Settings" data-overlay-card>
+      <div class="overlay-card__meta" style="padding-bottom:16px;border-bottom:1px solid var(--glass-border);margin-bottom:16px;">
+        <div class="overlay-card__title">Settings</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:16px;">
+        <div><div class="muted" style="margin-bottom:8px;font-weight:600;">Accent Color</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            ${accentColors.map(c => `<button type="button" class="chip ${uiState.accentColor === c.value ? "is-active" : ""}" data-action="set-accent" data-color="${c.value}" style="width:32px;height:32px;border-radius:50%;background:${c.value};border:2px solid ${uiState.accentColor === c.value ? "white" : "transparent"};"></button>`).join("")}
+          </div>
+        </div>
+        <div><div class="muted" style="margin-bottom:8px;font-weight:600;">Volume</div>
+          <input type="range" min="0" max="1" step="0.1" value="${uiState.volume}" data-action="set-volume" style="width:100%;accent-color:var(--accent);">
+        </div>
+        <div style="display:flex;gap:12px;align-items:center;">
+          <label style="display:flex;gap:8px;align-items:center;cursor:pointer;">
+            <input type="checkbox" ${uiState.compactMode ? "checked" : ""} data-action="toggle-compact" style="accent-color:var(--accent);">
+            <span class="muted">Compact Mode</span>
+          </label>
+          <label style="display:flex;gap:8px;align-items:center;cursor:pointer;">
+            <input type="checkbox" ${uiState.reducedMotion ? "checked" : ""} data-action="toggle-reduced-motion" style="accent-color:var(--accent);">
+            <span class="muted">Reduced Motion</span>
+          </label>
+        </div>
+      </div>
+      <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--glass-border);text-align:right;">
+        <button type="button" class="nav-button" data-action="close-overlay">Close</button>
+      </div>
+    </div></div>`;
   }
   return "";
 }
@@ -1159,7 +1231,7 @@ function setupWatchPlayer() {
   window.clearTimeout(streamFallbackTimer); const iframe = document.querySelector("[data-watch-iframe]"); if (!iframe) return;
   uiState.watch.streamLoaded = false;
   iframe.addEventListener("load", () => { uiState.watch.streamLoaded = true; window.clearTimeout(streamFallbackTimer); }, { once: true });
-  streamFallbackTimer = window.setTimeout(() => { if (!uiState.watch.streamLoaded && currentWatchId) { uiState.watch.forceFallback = true; renderApp(); showToast("MegaPlay did not load. Manual tracking is still available.", "error"); } }, 7000);
+  streamFallbackTimer = window.setTimeout(() => { if (!uiState.watch.streamLoaded && currentWatchId) { uiState.watch.forceFallback = true; renderApp(); showToast(`${STREAM_PROVIDERS[uiState.watch.currentProvider]?.name || "Stream"} did not load. Try switching providers.`, "error"); } }, 7000);
 }
 function syncScrollButtons(trackId) {
   const track = document.getElementById(trackId); if (!track) return;
@@ -1194,6 +1266,11 @@ function handleClick(event) {
   if (action === "open-watch") { openWatchView(Number(actionTarget.dataset.id)); return; }
   if (action === "open-detail") { openDetailOverlay(Number(actionTarget.dataset.id)); return; }
   if (action === "close-overlay") { uiState.overlay = null; renderApp(); return; }
+  if (action === "open-settings") { uiState.overlay = { type: "settings" }; renderApp(); return; }
+  if (action === "set-accent") { uiState.accentColor = actionTarget.dataset.color; document.documentElement.style.setProperty("--accent", uiState.accentColor); document.documentElement.style.setProperty("--accent-bright", actionTarget.dataset.color); saveData(); renderApp(); return; }
+  if (action === "set-volume") { uiState.volume = parseFloat(actionTarget.value); saveData(); return; }
+  if (action === "toggle-compact") { uiState.compactMode = !uiState.compactMode; document.body.classList.toggle("compact-mode", uiState.compactMode); saveData(); renderApp(); return; }
+  if (action === "toggle-reduced-motion") { uiState.reducedMotion = !uiState.reducedMotion; document.body.classList.toggle("reduced-motion", uiState.reducedMotion); saveData(); renderApp(); return; }
   if (action === "open-status-picker") { openStatusPicker(actionTarget.dataset.source, Number(actionTarget.dataset.id)); return; }
   if (action === "quick-watch-now") { const media = getAniListResultBySource(actionTarget.dataset.source, Number(actionTarget.dataset.id)); if (media) quickWatchNow(media); return; }
   if (action === "quick-add-status") { event.stopPropagation(); const media = getAniListResultBySource(actionTarget.dataset.source, Number(actionTarget.dataset.id)); if (media) addToLibrary(media, actionTarget.dataset.status); return; }
@@ -1206,6 +1283,15 @@ function handleClick(event) {
   if (action === "watch-next") { if (currentWatchId) switchEpisode(currentWatchId, currentEpisode + 1); return; }
   if (action === "watch-mark") { if (currentWatchId) markEpisodeWatched(currentWatchId, currentEpisode); return; }
   if (action === "toggle-fullscreen") { toggleWatchFullscreen(); return; }
+  if (action === "switch-provider") { 
+    const nextProvider = (uiState.watch.currentProvider + 1) % STREAM_PROVIDERS.length; 
+    uiState.watch.currentProvider = nextProvider; 
+    uiState.watch.streamLoaded = false; 
+    uiState.watch.forceFallback = false;
+    renderApp(); 
+    showToast(`Switched to ${STREAM_PROVIDERS[nextProvider].name}`, "info");
+    return; 
+  }
   if (action === "switch-language") { if (currentWatchId) switchLanguage(currentWatchId, actionTarget.dataset.lang); return; }
   if (action === "set-episode") { if (currentWatchId) switchEpisode(currentWatchId, Number(actionTarget.dataset.ep)); return; }
   if (action === "set-rating") { if (currentWatchId) setRating(currentWatchId, Number(actionTarget.dataset.rating)); return; }
@@ -1268,6 +1354,7 @@ function handleKeydown(event) {
   if (event.shiftKey && event.key.toLowerCase() === "n") { event.preventDefault(); switchEpisode(currentWatchId, currentEpisode + 1); return; }
   if (event.shiftKey && event.key.toLowerCase() === "p") { event.preventDefault(); switchEpisode(currentWatchId, currentEpisode - 1); return; }
   if (event.key === " ") { const iframe = document.querySelector("[data-watch-iframe]"); if (iframe) { event.preventDefault(); iframe.focus(); } }
+  if (event.key.toLowerCase() === "w") { event.preventDefault(); const entry = getEntry(currentWatchId); if (entry) { uiState.watch.currentProvider = (uiState.watch.currentProvider + 1) % STREAM_PROVIDERS.length; uiState.watch.streamLoaded = false; uiState.watch.forceFallback = false; renderApp(); showToast(`Switched to ${STREAM_PROVIDERS[uiState.watch.currentProvider].name}`, "info"); } return; }
 }
 function handleMessage(event) {
   if (!event.origin.includes("megaplay.buzz") || !currentWatchId) return;
