@@ -872,6 +872,16 @@ function renderStats() {
 }
 function renderSearch() {
   const libraryMatches = getSearchLibraryMatches();
+  const f = uiState.search.filters;
+  const filteredResults = uiState.search.results.filter(m => {
+    if (f.yearMin && (!m.seasonYear || m.seasonYear < f.yearMin)) return false;
+    if (f.yearMax && (!m.seasonYear || m.seasonYear > f.yearMax)) return false;
+    if (f.scoreMin && (!m.averageScore || m.averageScore < f.scoreMin)) return false;
+    if (f.episodesMin && (!m.episodes || m.episodes < f.episodesMin)) return false;
+    if (f.status && m.status !== f.status) return false;
+    return true;
+  });
+  const totalFiltered = filteredResults.length, totalResults = uiState.search.results.length;
   return `
   <div class="page page--search">
     <section class="search-hero">
@@ -887,7 +897,7 @@ function renderSearch() {
         </div>
         <div class="filter-section">
           <div class="filter-title">Score</div>
-          <div class="filter-range"><input type="number" class="input filter-input" placeholder="Min" value="${uiState.search.filters.scoreMin || ""}" data-filter="scoreMin" min="60" max="100" step="5"><span>–</span><input type="number" class="input filter-input" placeholder="Max" value="" disabled></div>
+          <div class="filter-range"><input type="number" class="input filter-input" placeholder="Min" value="${uiState.search.filters.scoreMin || ""}" data-filter="scoreMin" min="60" max="100" step="5"></div>
         </div>
         <div class="filter-section">
           <div class="filter-title">Episodes</div>
@@ -907,20 +917,6 @@ function renderSearch() {
         ${libraryMatches.length ? `<div class="media-row"><div class="media-row__viewport" id="searchLibraryRow" data-row-track="searchLibraryRow"><div class="media-row__track">${libraryMatches.map((entry) => renderSearchCard({ id: entry.id, title: { romaji: entry.title, english: entry.titleEnglish }, coverImage: { large: entry.cover }, episodes: entry.episodes, averageScore: entry.averageScore, status: entry.status })).join("")}</div></div></div>` : renderEmptyState("MY", "Nothing in your library matches yet", uiState.search.query.trim() ? "Try a different title, genre, or note keyword." : "Start typing to search your saved anime first.")}
       </section>
       <section class="section">
-        <div class="section__head">
-          <div class="section__copy"><div class="section__title">AniList Results</div><div class="section__sub">Add fresh results directly into AniVault.</div></div>
-        </div>
-        const f = uiState.search.filters;
-  const filteredResults = uiState.search.results.filter(m => {
-    if (f.yearMin && (!m.seasonYear || m.seasonYear < f.yearMin)) return false;
-    if (f.yearMax && (!m.seasonYear || m.seasonYear > f.yearMax)) return false;
-    if (f.scoreMin && (!m.averageScore || m.averageScore < f.scoreMin)) return false;
-    if (f.episodesMin && (!m.episodes || m.episodes < f.episodesMin)) return false;
-    if (f.status && m.status !== f.status) return false;
-    return true;
-  });
-  const totalFiltered = filteredResults.length, totalResults = uiState.search.results.length;
-  return `
         <div class="section__head">
           <div class="section__copy"><div class="section__title">AniList Results${totalFiltered !== totalResults ? ` (${totalFiltered}/${totalResults})` : ""}</div><div class="section__sub">Add fresh results directly into AniVault.</div></div>
         </div>
