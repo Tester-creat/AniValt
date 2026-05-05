@@ -644,7 +644,7 @@ body.is-scrolling .discover-card .discover-card__body {
 
 .watch-layout {
   display: grid;
-  grid-template-columns: 300px 1fr;
+  grid-template-columns: 1fr 320px;
   /* Fill the remaining height of app-main viewport */
   height: calc(100vh - var(--nav-h));
   gap: 0;
@@ -653,7 +653,8 @@ body.is-scrolling .discover-card .discover-card__body {
 
 .watch-sidebar {
   background: var(--glass-bg); backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px); border-right: 1px solid var(--glass-border);
+  -webkit-backdrop-filter: blur(20px); border-left: 1px solid var(--glass-border);
+  border-right: none;
   display: flex; flex-direction: column;
   /* FIX: sidebar fills the fixed layout height, NO overflow on itself */
   height: 100%; overflow: hidden;
@@ -1040,11 +1041,11 @@ body.is-scrolling .discover-card .discover-card__body {
   .poster-card { width: 130px; }
   .poster-card__media { width: 130px; height: 184px; }
 
-  /* Mobile watch: stack sidebar below player */
-  .watch-layout { grid-template-columns: 1fr; height: auto; overflow: visible; }
+  /* Mobile watch: player above sidebar */
+  .watch-layout { grid-template-columns: 1fr; grid-template-rows: 1fr auto; height: auto; overflow: visible; }
   .watch-sidebar {
     height: auto; overflow: visible;
-    border-right: none; border-bottom: 1px solid var(--glass-border);
+    border-left: none; border-top: 1px solid var(--glass-border);
   }
   .watch-sidebar__body { max-height: 280px; overflow-y: auto; }
 
