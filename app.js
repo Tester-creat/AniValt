@@ -1102,7 +1102,7 @@ function renderWatchView() {
     </aside>
     <section class="watch-player">
       <div class="watch-player__frame">${currentUrl && !uiState.watch.forceFallback ? `<iframe src="${escapeHtml(currentUrl)}" title="${escapeHtml(getDisplayTitle(entry))}" allow="autoplay; fullscreen" allowfullscreen data-watch-iframe></iframe>` : `<div class="watch-player__fallback"><div class="watch-player__fallback-card"><div class="watch-title">No stream available for this title via ${provider.name}</div><div class="muted">Come back and mark episodes watched manually using the list on the left.</div><a class="action-button" href="${escapeHtml(fallbackUrl)}" target="_blank" rel="noopener">Search on HiAnime -&gt;</a></div></div>`}</div>
-      <div class="watch-player__controls"><button type="button" class="secondary-button" data-action="watch-prev" ${currentEpisode <= 1 ? "disabled" : ""}>&larr; Prev</button><strong class="watch-player__ep-label">Ep ${currentEpisode} / ${entry.episodes || "?"}</strong><button type="button" class="secondary-button" data-action="watch-next" ${currentEpisode >= totalEpisodes ? "disabled" : ""}>Next &rarr;</button><button type="button" class="secondary-button" data-action="switch-provider" ${STREAM_PROVIDERS.length <= 1 ? "disabled" : ""} title="Switch provider">${provider.name}</button><button type="button" class="secondary-button watch-fs-btn" data-action="toggle-fullscreen" title="Fullscreen (F)">&#x26F6;</button></div>
+      <div class="watch-player__controls"><button type="button" class="secondary-button" data-action="watch-prev" ${currentEpisode <= 1 ? "disabled" : ""}>&larr; Prev</button><strong class="watch-player__ep-label">Ep ${currentEpisode} / ${entry.episodes || "?"}</strong><button type="button" class="secondary-button" data-action="watch-next" ${currentEpisode >= totalEpisodes ? "disabled" : ""}>Next &rarr;</button><button type="button" class="secondary-button" data-action="skip-intro" title="Skip Intro (I)">Skip Intro</button><button type="button" class="secondary-button" data-action="skip-outro" title="Skip Outro (O)">Skip Outro</button><button type="button" class="secondary-button" data-action="switch-provider" ${STREAM_PROVIDERS.length <= 1 ? "disabled" : ""} title="Switch provider">${provider.name}</button><button type="button" class="secondary-button watch-fs-btn" data-action="toggle-fullscreen" title="Fullscreen (F)">&#x26F6;</button></div>
     </section>
   </div><div id="watchOrderMount"></div></div>`;
 }
@@ -1283,6 +1283,8 @@ function handleClick(event) {
   if (action === "watch-next") { if (currentWatchId) switchEpisode(currentWatchId, currentEpisode + 1); return; }
   if (action === "watch-mark") { if (currentWatchId) markEpisodeWatched(currentWatchId, currentEpisode); return; }
   if (action === "toggle-fullscreen") { toggleWatchFullscreen(); return; }
+  if (action === "skip-intro") { const iframe = document.querySelector("[data-watch-iframe]"); if (iframe && iframe.contentWindow) { iframe.contentWindow.postMessage({ action: "skip", type: "intro" }, "*"); showToast("Skipping intro...", "info"); } return; }
+  if (action === "skip-outro") { const iframe = document.querySelector("[data-watch-iframe]"); if (iframe && iframe.contentWindow) { iframe.contentWindow.postMessage({ action: "skip", type: "outro" }, "*"); showToast("Skipping outro...", "info"); } return; }
   if (action === "switch-provider") { 
     const nextProvider = (uiState.watch.currentProvider + 1) % STREAM_PROVIDERS.length; 
     uiState.watch.currentProvider = nextProvider; 
@@ -1355,6 +1357,8 @@ function handleKeydown(event) {
   if (event.shiftKey && event.key.toLowerCase() === "p") { event.preventDefault(); switchEpisode(currentWatchId, currentEpisode - 1); return; }
   if (event.key === " ") { const iframe = document.querySelector("[data-watch-iframe]"); if (iframe) { event.preventDefault(); iframe.focus(); } }
   if (event.key.toLowerCase() === "w") { event.preventDefault(); const entry = getEntry(currentWatchId); if (entry) { uiState.watch.currentProvider = (uiState.watch.currentProvider + 1) % STREAM_PROVIDERS.length; uiState.watch.streamLoaded = false; uiState.watch.forceFallback = false; renderApp(); showToast(`Switched to ${STREAM_PROVIDERS[uiState.watch.currentProvider].name}`, "info"); } return; }
+  if (event.key.toLowerCase() === "i") { event.preventDefault(); const iframe = document.querySelector("[data-watch-iframe]"); if (iframe && iframe.contentWindow) { iframe.contentWindow.postMessage({ action: "skip", type: "intro" }, "*"); showToast("Skipping intro...", "info"); } return; }
+  if (event.key.toLowerCase() === "o") { event.preventDefault(); const iframe = document.querySelector("[data-watch-iframe]"); if (iframe && iframe.contentWindow) { iframe.contentWindow.postMessage({ action: "skip", type: "outro" }, "*"); showToast("Skipping outro...", "info"); } return; }
 }
 function handleMessage(event) {
   if (!event.origin.includes("megaplay.buzz") || !currentWatchId) return;

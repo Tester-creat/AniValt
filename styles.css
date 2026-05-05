@@ -785,13 +785,14 @@ body.is-scrolling .discover-card .discover-card__body {
   border: 1px solid var(--glass-border);
 }
 .watch-player__controls {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 12px 20px; background: var(--glass-bg);
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 8px 12px; background: var(--glass-bg);
   backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
   border-top: 1px solid var(--glass-border); flex-shrink: 0; z-index: 2;
-  height: 54px;
+  height: auto; flex-wrap: wrap;
 }
-.watch-player__ep-label { font-size: 0.88em; color: var(--text1); flex: 1; text-align: center; font-weight: 600; }
+.watch-player__controls .secondary-button { padding: 6px 10px; font-size: 0.75em; }
+.watch-player__ep-label { font-size: 0.85em; color: var(--text1); flex: 1; text-align: center; font-weight: 600; min-width: 80px; }
 .watch-fs-btn { font-size: 1.15em; padding: 7px 11px; line-height: 1; border-radius: var(--radius-sm); transition: all 0.25s ease; }
 .watch-fs-btn:hover { background: rgba(124,58,237,0.2); }
 
