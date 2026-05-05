@@ -644,21 +644,25 @@ body.is-scrolling .discover-card .discover-card__body {
 
 .watch-layout {
   display: grid;
-  grid-template-columns: 1fr 320px;
+  grid-template-columns: 280px 1fr 300px;
   /* Fill the remaining height of app-main viewport */
   height: calc(100vh - var(--nav-h));
   gap: 0;
-  overflow: hidden;  /* FIX: prevent layout from introducing scroll */
+  overflow: hidden;
 }
 
 .watch-sidebar {
   background: var(--glass-bg); backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px); border-left: 1px solid var(--glass-border);
-  border-right: none;
+  -webkit-backdrop-filter: blur(20px);
   display: flex; flex-direction: column;
-  /* FIX: sidebar fills the fixed layout height, NO overflow on itself */
   height: 100%; overflow: hidden;
 }
+.watch-sidebar--left { border-right: 1px solid var(--glass-border); }
+.watch-sidebar--right { border-left: 1px solid var(--glass-border); }
+.watch-sidebar__body--compact { flex: 0 0 auto; padding: 12px; }
+
+.ep-synopsis-label { font-size: 0.8em; font-weight: 600; color: var(--accent); margin-bottom: 6px; }
+.ep-synopsis-text { font-size: 0.78em; color: var(--text2); line-height: 1.5; }
 .watch-meta { padding: 18px 14px 14px; border-bottom: 1px solid var(--glass-border); flex-shrink: 0; }
 .watch-title { font-size: 0.95em; font-weight: 800; color: var(--text1); line-height: 1.3; }
 .watch-meta__row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
@@ -1041,12 +1045,13 @@ body.is-scrolling .discover-card .discover-card__body {
   .poster-card { width: 130px; }
   .poster-card__media { width: 130px; height: 184px; }
 
-  /* Mobile watch: player above sidebar */
-  .watch-layout { grid-template-columns: 1fr; grid-template-rows: 1fr auto; height: auto; overflow: visible; }
-  .watch-sidebar {
-    height: auto; overflow: visible;
-    border-left: none; border-top: 1px solid var(--glass-border);
+  /* Mobile watch: stack left sidebar, player, right sidebar vertically */
+  .watch-layout { grid-template-columns: 1fr; grid-template-rows: auto 1fr auto auto; height: auto; overflow: visible; }
+  .watch-sidebar--left, .watch-sidebar--right {
+    height: auto; overflow: visible; border: none;
   }
+  .watch-sidebar--left { border-bottom: 1px solid var(--glass-border); }
+  .watch-sidebar--right { border-top: 1px solid var(--glass-border); }
   .watch-sidebar__body { max-height: 280px; overflow-y: auto; }
 
   .library-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 14px; }

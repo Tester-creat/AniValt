@@ -880,8 +880,6 @@ function getGroupForEpisode(episode, groups) {
 const STREAM_PROVIDERS = [
   { name: "MegaPlay", buildUrl: (entry, ep, lang) => `https://megaplay.buzz/stream/ani/${entry.anilistId}/${ep}/${lang}` },
   { name: "HiAnime", buildUrl: (entry, ep, lang) => `https://hianime.to/watch/${entry.anilistId.replace('anime/', '')}-${entry.anilistId}?ep=${ep}` },
-  { name: "Vidplay", buildUrl: (entry, ep, lang) => `https://vidplay.animerco.com/embed/ani/${entry.anilistId}/${ep}` },
-  { name: "Cloudflare", buildUrl: (entry, ep, lang) => `https://cfmovies.rdnlabs.cf/embed/${entry.anilistId}/${ep}` },
 ];
 
 function buildStreamUrl(entry, episode, language, providerIndex = 0) {
@@ -1093,16 +1091,22 @@ function renderWatchView() {
   const provider = STREAM_PROVIDERS[uiState.watch.currentProvider] || STREAM_PROVIDERS[0];
   const fallbackUrl = `https://hianime.re/search?keyword=${encodeURIComponent(getDisplayTitle(entry))}`;
   const progressLabel = `${entry.episodesWatched || 0} / ${entry.episodes || "?"} episodes watched`;
+  const cachedEpisodeData = episodeCache[entry.anilistId] || { episodes: {} };
+  const currentEpMeta = cachedEpisodeData.episodes[currentEpisode] || {};
+  const episodeSynopsis = currentEpMeta.synopsis || "";
   return `<div class="page page--watch"><div class="watch-layout" id="watchViewContainer">
-    <section class="watch-player">
-      <div class="watch-player__frame">${currentUrl && !uiState.watch.forceFallback ? `<iframe src="${escapeHtml(currentUrl)}" title="${escapeHtml(getDisplayTitle(entry))}" allow="autoplay; fullscreen" allowfullscreen data-watch-iframe></iframe>` : `<div class="watch-player__fallback"><div class="watch-player__fallback-card"><div class="watch-title">No stream available for this title via ${provider.name}</div><div class="muted">Come back and mark episodes watched manually using the list on the right.</div><a class="action-button" href="${escapeHtml(fallbackUrl)}" target="_blank" rel="noopener">Search on HiAnime -&gt;</a></div></div>`}</div>
-      <div class="watch-player__controls"><button type="button" class="secondary-button" data-action="watch-prev" ${currentEpisode <= 1 ? "disabled" : ""}>&larr; Prev</button><strong class="watch-player__ep-label">Ep ${currentEpisode} / ${entry.episodes || "?"}</strong><button type="button" class="secondary-button" data-action="watch-next" ${currentEpisode >= totalEpisodes ? "disabled" : ""}>Next &rarr;</button><button type="button" class="secondary-button" data-action="skip-intro" title="Skip Intro (I)">Skip Intro</button><button type="button" class="secondary-button" data-action="skip-outro" title="Skip Outro (O)">Skip Outro</button><button type="button" class="secondary-button" data-action="switch-provider" ${STREAM_PROVIDERS.length <= 1 ? "disabled" : ""} title="Switch provider">${provider.name}</button><button type="button" class="secondary-button watch-fs-btn" data-action="toggle-fullscreen" title="Fullscreen (F)">&#x26F6;</button></div>
-    </section>
-    <aside class="watch-sidebar">
+    <aside class="watch-sidebar watch-sidebar--left">
       <div class="watch-meta"><div class="watch-title">${escapeHtml(getDisplayTitle(entry))}</div><div class="watch-meta__row"><span class="${getStatusClass(entry.status)}">${escapeHtml(STATUS_LABELS[entry.status])}</span>${entry.averageScore ? `<span class="watch-badge">AniList ${entry.averageScore}</span>` : ""}${entry.year ? `<span class="watch-badge">${entry.year}</span>` : ""}</div></div>
       <div class="watch-language-sticky"><div class="language-toggle" role="group" aria-label="Audio language"><button type="button" class="${entry.language === "sub" ? "is-active" : ""}" data-action="switch-language" data-lang="sub">SUB</button><button type="button" class="${entry.language === "dub" ? "is-active" : ""}" data-action="switch-language" data-lang="dub">DUB</button></div></div>
-      <div class="watch-sidebar__body"><div id="episodeGroupSelector"></div><div class="episode-list" id="episodeList"></div></div>
+      <div class="watch-sidebar__body watch-sidebar__body--compact"><div class="current-episode-synopsis">${episodeSynopsis ? `<div class="ep-synopsis-label">Ep ${currentEpisode}: ${escapeHtml(currentEpMeta.name || "")}</div><div class="ep-synopsis-text">${escapeHtml(episodeSynopsis)}</div>` : `<div class="ep-synopsis-label">Episode ${currentEpisode}</div><div class="ep-synopsis-text muted">No synopsis available</div>`}</div></div>
       <div class="watch-sidebar-bottom"><div class="watch-progress-label">${escapeHtml(progressLabel)}</div><div id="watchViewRatingContainer"></div><div><label class="muted" for="watchStatusSelect">Status</label><select id="watchStatusSelect" class="select" data-status-select="${entry.id}">${STATUS_OPTIONS.map(status => `<option value="${status}" ${entry.status === status ? "selected" : ""}>${STATUS_LABELS[status]}</option>`).join("")}</select></div></div>
+    </aside>
+    <section class="watch-player">
+      <div class="watch-player__frame">${currentUrl && !uiState.watch.forceFallback ? `<iframe src="${escapeHtml(currentUrl)}" title="${escapeHtml(getDisplayTitle(entry))}" allow="autoplay; fullscreen" allowfullscreen data-watch-iframe></iframe>` : `<div class="watch-player__fallback"><div class="watch-player__fallback-card"><div class="watch-title">No stream available for this title via ${provider.name}</div><div class="muted">Try switching providers below or search manually.</div><a class="action-button" href="${escapeHtml(fallbackUrl)}" target="_blank" rel="noopener">Search on HiAnime -&gt;</a></div></div>`}</div>
+      <div class="watch-player__controls"><button type="button" class="secondary-button" data-action="watch-prev" ${currentEpisode <= 1 ? "disabled" : ""}>&larr; Prev</button><strong class="watch-player__ep-label">Ep ${currentEpisode} / ${entry.episodes || "?"}</strong><button type="button" class="secondary-button" data-action="watch-next" ${currentEpisode >= totalEpisodes ? "disabled" : ""}>Next &rarr;</button><button type="button" class="secondary-button" data-action="skip-intro" title="Skip Intro (I)">Skip Intro</button><button type="button" class="secondary-button" data-action="skip-outro" title="Skip Outro (O)">Skip Outro</button><button type="button" class="secondary-button" data-action="switch-provider" ${STREAM_PROVIDERS.length <= 1 ? "disabled" : ""} title="Switch provider">${provider.name}</button><button type="button" class="secondary-button watch-fs-btn" data-action="toggle-fullscreen" title="Fullscreen (F)">&#x26F6;</button></div>
+    </section>
+    <aside class="watch-sidebar watch-sidebar--right">
+      <div class="watch-sidebar__body"><div id="episodeGroupSelector"></div><div class="episode-list" id="episodeList"></div></div>
       <div class="watch-sidebar-footer-buttons"><button type="button" class="action-button" data-action="watch-mark">Mark Watched</button><button type="button" class="secondary-button" data-action="remove-from-library" data-id="${entry.id}">Remove</button><button type="button" class="secondary-button" data-action="watch-back"> &larr; Back</button></div>
     </aside>
   </div><div id="watchOrderMount"></div></div>`;
