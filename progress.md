@@ -91,11 +91,11 @@ AniVault is a privacy-first, offline-capable anime streaming and tracking platfo
 ```
 anivalt/
 ├── index.html      # Main HTML file
-├── app.js         # All JavaScript application logic (1583 lines)
-├── styles.css     # All CSS styles (1116 lines)
-├── README.md      # documentation
-├── features.md    # Feature requirements
-└── netlify.toml   # Netlify configuration
+├── app.js        # All JavaScript application logic (1575 lines)
+├── styles.css    # All CSS styles (1124 lines)
+├── progress.md   # Project documentation
+├── README.md     # documentation
+└── netlify.toml # Netlify configuration
 ```
 
 ---
