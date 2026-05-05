@@ -768,14 +768,6 @@ async function loadBrowseMore() {
     uiState.browse.loading = false; uiState.browse.error = error.message; queueRender();
   }
 }
-    uiState.browse.title = title; uiState.browse.subtitle = subtitle;
-    uiState.browse.loading = false; uiState.browse.initialized = true; queueRender();
-  } catch (error) {
-    if (requestId !== uiState.browse.requestId) return;
-    uiState.browse.loading = false; uiState.browse.error = error.message; queueRender();
-    showToast("AniList browse request failed. Try again when you are online.", "error");
-  }
-}
 function renderDiscoverCard(media, source) {
   const existing = getEntry(media.id);
   const title = media.title.english || media.title.romaji;
