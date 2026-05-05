@@ -731,6 +731,19 @@ async function loadBrowse(mode, genre = uiState.browse.genre) {
   if (mode === "top") { variables = { page: 1, perPage: 30, sort: ["SCORE_DESC"] }; title = "Top Rated"; subtitle = "High scoring anime from AniList."; }
   else if (mode === "popular") { variables = { page: 1, perPage: 30, sort: ["POPULARITY_DESC"] }; title = "Most Popular"; subtitle = "Heavy hitters with the biggest audiences."; }
   else if (mode === "genre") { variables = { page: uiState.browse.page + 1, perPage: 30, sort: ["SCORE_DESC"], genre }; title = `${genre || "All"} Highlights`; subtitle = `Top rated picks. Page ${uiState.browse.page + 1}.`; }
+  else { variables = { page: 1, perPage: 30, sort: ["POPULARITY_DESC"], season, seasonYear }; }
+  try {
+    const data = await fetchAniList(BROWSE_QUERY, variables);
+    if (requestId !== uiState.browse.requestId) return;
+    uiState.browse.results = data.Page.media.map(adaptAniListMedia);
+    uiState.browse.title = title; uiState.browse.subtitle = subtitle;
+    uiState.browse.loading = false; uiState.browse.initialized = true; uiState.browse.page = 1; uiState.browse.hasMore = data.Page.media.length === 30; queueRender();
+  } catch (error) {
+    if (requestId !== uiState.browse.requestId) return;
+    uiState.browse.loading = false; uiState.browse.error = error.message; queueRender();
+    showToast("AniList browse request failed. Try again when you are online.", "error");
+  }
+}
 async function loadBrowseMore() {
   if (uiState.browse.loading || !uiState.browse.hasMore) return;
   const mode = uiState.browse.mode, genre = uiState.browse.genre;
@@ -755,11 +768,6 @@ async function loadBrowseMore() {
     uiState.browse.loading = false; uiState.browse.error = error.message; queueRender();
   }
 }
-  else { variables = { page: 1, perPage: 30, sort: ["POPULARITY_DESC"], season, seasonYear }; }
-  try {
-    const data = await fetchAniList(BROWSE_QUERY, variables);
-    if (requestId !== uiState.browse.requestId) return;
-    uiState.browse.results = data.Page.media.map(adaptAniListMedia);
     uiState.browse.title = title; uiState.browse.subtitle = subtitle;
     uiState.browse.loading = false; uiState.browse.initialized = true; queueRender();
   } catch (error) {
