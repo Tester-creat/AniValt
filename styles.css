@@ -503,11 +503,18 @@ body::before {
 .library-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(155px, 1fr)); gap: 20px; }
 
 /* ── BROWSE & SEARCH GRID ───────────────────────────── */
-/* ShuttleTV-style: larger cards, tighter grid */
+/* Horizontal scrolling grid - fills width */
 .browse-results, .discover-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 18px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.browse-results > *, .discover-grid > * {
+  flex: 0 0 auto;
+  width: 140px;
+}
+.browse-results {
+  width: 100%;
 }
 
 .browse-controls {
