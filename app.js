@@ -879,6 +879,7 @@ function getGroupForEpisode(episode, groups) {
 /* WATCH VIEW */
 const STREAM_PROVIDERS = [
   { name: "MegaPlay", buildUrl: (entry, ep, lang) => `https://megaplay.buzz/stream/ani/${entry.anilistId}/${ep}/${lang}` },
+  { name: "VidSrc", buildUrl: (entry, ep, lang) => `https://vidsrc.cc/v2/embed/anime/ani${entry.anilistId}/${ep}/${lang}` },
   { name: "HiAnime", buildUrl: (entry, ep, lang) => `https://hianime.to/watch/${entry.anilistId.replace('anime/', '')}-${entry.anilistId}?ep=${ep}` },
 ];
 
@@ -1236,7 +1237,23 @@ function setupWatchPlayer() {
   window.clearTimeout(streamFallbackTimer); const iframe = document.querySelector("[data-watch-iframe]"); if (!iframe) return;
   uiState.watch.streamLoaded = false;
   iframe.addEventListener("load", () => { uiState.watch.streamLoaded = true; window.clearTimeout(streamFallbackTimer); }, { once: true });
-  streamFallbackTimer = window.setTimeout(() => { if (!uiState.watch.streamLoaded && currentWatchId) { uiState.watch.forceFallback = true; renderApp(); showToast(`${STREAM_PROVIDERS[uiState.watch.currentProvider]?.name || "Stream"} did not load. Try switching providers.`, "error"); } }, 7000);
+  streamFallbackTimer = window.setTimeout(() => { 
+    if (!uiState.watch.streamLoaded && currentWatchId) {
+      const currentIdx = uiState.watch.currentProvider;
+      const nextIdx = (currentIdx + 1) % STREAM_PROVIDERS.length;
+      if (nextIdx !== currentIdx) {
+        showToast(`${STREAM_PROVIDERS[currentIdx]?.name || "Stream"} failed. Trying ${STREAM_PROVIDERS[nextIdx]?.name}...`, "info");
+        uiState.watch.currentProvider = nextIdx;
+        uiState.watch.streamLoaded = false;
+        uiState.watch.forceFallback = false;
+        renderApp();
+      } else {
+        uiState.watch.forceFallback = true;
+        renderApp();
+        showToast("All providers failed. Anime may not be available.", "error");
+      }
+    } 
+  }, 5000);
 }
 function syncScrollButtons(trackId) {
   const track = document.getElementById(trackId); if (!track) return;
