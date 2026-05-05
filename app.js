@@ -1253,7 +1253,7 @@ function setupWatchPlayer() {
         showToast("All providers failed. Anime may not be available.", "error");
       }
     } 
-  }, 5000);
+  }, 90000);
 }
 function syncScrollButtons(trackId) {
   const track = document.getElementById(trackId); if (!track) return;
