@@ -691,10 +691,8 @@ body.is-scrolling .discover-card .discover-card__body {
   This is the ONLY overflow-y: auto allowed in the sidebar.
 */
 .watch-sidebar__body {
-  flex: 1; overflow-y: auto; overflow-x: hidden;
-  scrollbar-width: thin; scrollbar-color: rgba(124,58,237,0.3) transparent;
-  padding: 0; display: flex; flex-direction: column;
-  /* must NOT be overflow:hidden — it IS the scroll container */
+  display: flex; flex-direction: column; gap: 8px; flex: 1;
+  overflow-y: auto; padding: 0;
 }
 .watch-sidebar__body::-webkit-scrollbar { width: 4px; }
 .watch-sidebar__body::-webkit-scrollbar-thumb { background: rgba(124,58,237,0.3); border-radius: 2px; }
@@ -721,7 +719,7 @@ body.is-scrolling .discover-card .discover-card__body {
   border-color: transparent; color: white;
 }
 
-.episode-list { padding: 4px; display: flex; flex-direction: column; gap: 1px; flex: 1; }
+.episode-list { padding: 4px; display: flex; flex-direction: column; gap: 1px; flex: 1; overflow-y: auto; }
 .ep-row {
   display: flex; align-items: center; gap: 8px; width: 100%;
   padding: 5px 10px; border-radius: 4px;
