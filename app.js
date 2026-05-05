@@ -1,6 +1,6 @@
 /* RESET */
 const STORAGE_KEY = "anivault_v2";
-const NAV_TABS = ["home", "library", "browse", "search"];
+const NAV_TABS = ["home", "library", "browse", "search", "stats"];
 const STATUS_OPTIONS = [
   "watching",
   "completed",
@@ -832,6 +832,44 @@ async function runAniListSearch(query) {
     showToast("AniList search failed. Check your connection and try again.", "error");
   }
 }
+function renderStats() {
+  const entries = getAnimeEntries();
+  const totalAnime = entries.length;
+  const watching = entries.filter(e => e.status === "watching").length;
+  const completed = entries.filter(e => e.status === "completed").length;
+  const queued = entries.filter(e => e.status === "queued" || e.status === "plan-to-watch").length;
+  const totalEpisodesWatched = entries.reduce((sum, e) => sum + (e.episodesWatched || 0), 0);
+  const totalMinutesWatched = entries.reduce((sum, e) => sum + ((e.episodesWatched || 0) * (episodeCache[e.anilistId]?.duration || 24)), 0);
+  const hoursWatched = Math.round(totalMinutesWatched / 60);
+  const daysWatched = Math.round(hoursWatched / 24);
+  const avgScore = entries.filter(e => e.rating > 0).reduce((sum, e, _, arr) => sum + e.rating / arr.length, 0);
+  const genreCounts = {};
+  entries.forEach(e => (e.genres || []).forEach(g => { genreCounts[g] = (genreCounts[g] || 0) + 1; }));
+  const topGenres = Object.entries(genreCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  return `
+  <div class="page page--stats">
+    <div class="page-hero"><div class="page-title">Watch Statistics</div><div class="page-subtitle">Your viewing habits, all stored locally.</div></div>
+    <div class="stats-grid">
+      <div class="stat-card"><div class="stat-value">${totalAnime}</div><div class="stat-label">Anime in Library</div></div>
+      <div class="stat-card"><div class="stat-value">${watching}</div><div class="stat-label">Currently Watching</div></div>
+      <div class="stat-card"><div class="stat-value">${completed}</div><div class="stat-label">Completed</div></div>
+      <div class="stat-card"><div class="stat-value">${queued}</div><div class="stat-label">In Queue</div></div>
+      <div class="stat-card"><div class="stat-value">${totalEpisodesWatched}</div><div class="stat-label">Episodes Watched</div></div>
+      <div class="stat-card"><div class="stat-value">${hoursWatched}</div><div class="stat-label">Hours Watched</div></div>
+    </div>
+    ${entries.length > 0 ? `
+    <div class="stats-section">
+      <div class="stats-section-title">Top Genres</div>
+      <div class="genre-bar-list">
+        ${topGenres.map(([genre, count]) => `<div class="genre-bar-item"><span class="genre-name">${genre}</span><div class="genre-bar"><div class="genre-bar-fill" style="width:${(count / totalAnime) * 100}%"></div></div><span class="genre-count">${count}</span></div>`).join("")}
+      </div>
+    </div>
+    <div class="stats-section">
+      <div class="stats-section-title">Average Rating</div>
+      <div class="rating-display">${avgScore > 0 ? avgScore.toFixed(1) + " / 10" : "No ratings yet"}</div>
+    </div>` : ""}
+  </div>`;
+}
 function renderSearch() {
   const libraryMatches = getSearchLibraryMatches();
   return `
@@ -1222,6 +1260,7 @@ function renderCurrentPage() {
   if (currentTab === "library") return renderLibrary();
   if (currentTab === "browse") return renderBrowse();
   if (currentTab === "search") return renderSearch();
+  if (currentTab === "stats") return renderStats();
   return renderHome();
 }
 function renderApp() {
