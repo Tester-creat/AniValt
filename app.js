@@ -913,14 +913,13 @@ function renderSearch() {
         <div class="section__head">
           <div class="section__copy"><div class="section__title">AniList Results${totalFiltered !== totalResults ? ` (${totalFiltered}/${totalResults})` : ""}</div><div class="section__sub">Add fresh results directly into AniVault.</div></div>
         </div>
-        ${uiState.search.loading ? renderEmptyState("...", "Searching AniList", "AniVault is looking for matching anime.") : uiState.search.error ? renderEmptyState("!", "Search is offline right now", uiState.search.error) : uiState.search.query.trim().length < 2 ? renderEmptyState("GO", "Search AniList", "Type at least two characters to load AniList results.") : filteredResults.length ? `<div class="media-row"><div class="media-row__viewport" id="searchAniListRow" data-row-track="searchAniListRow"><div class="media-row__track">${filteredResults.map((media) => renderSearchCard(media)).join("")}</div></div></div>` : renderEmptyState("0", "No results match filters", "Try adjusting your filters.")}
+        ${uiState.search.loading ? renderEmptyState("...", "Searching AniList", "AniVault is looking for matching anime.") : uiState.search.error ? renderEmptyState("!", "Search is offline right now", uiState.search.error) : uiState.search.query.trim().length < 2 ? renderEmptyState("GO", "Search AniList", "Type at least two characters to load AniList results.") : filteredResults.length ? `<div class="browse-results">${filteredResults.map((media) => renderSearchCard(media)).join("")}</div>` : renderEmptyState("0", "No results match filters", "Try adjusting your filters.")}
       </section>
       <section class="section">
         <div class="section__head">
           <div class="section__copy"><div class="section__title">Search in My Library</div><div class="section__sub">Local matches update instantly as you type.</div></div>
-          ${renderScrollControls("searchLibraryRow", libraryMatches.length > 3)}
         </div>
-        ${libraryMatches.length ? `<div class="media-row"><div class="media-row__viewport" id="searchLibraryRow" data-row-track="searchLibraryRow"><div class="media-row__track">${libraryMatches.map((entry) => renderSearchCard({ id: entry.id, title: { romaji: entry.title, english: entry.titleEnglish }, coverImage: { large: entry.cover }, episodes: entry.episodes, averageScore: entry.averageScore, status: entry.status })).join("")}</div></div></div>` : renderEmptyState("MY", "Nothing in your library matches yet", uiState.search.query.trim() ? "Try a different title, genre, or note keyword." : "Start typing to search your saved anime first.")}
+        ${libraryMatches.length ? `<div class="browse-results">${libraryMatches.map((entry) => renderSearchCard({ id: entry.id, title: { romaji: entry.title, english: entry.titleEnglish }, coverImage: { large: entry.cover }, episodes: entry.episodes, averageScore: entry.averageScore, status: entry.status })).join("")}</div>` : renderEmptyState("MY", "Nothing in your library matches yet", uiState.search.query.trim() ? "Try a different title, genre, or note keyword." : "Start typing to search your saved anime first.")}
       </section>
     </div>
   </div>`;
