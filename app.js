@@ -967,7 +967,11 @@ const STREAM_PROVIDERS = [
   { name: "VidSrc", buildUrl: (entry, ep, lang) => `https://vidsrc.icu/embed/anime/${entry.anilistId}/${ep}/${lang === "dub" ? 1 : 0}` },
   { name: "AniSuge", buildUrl: (entry, ep, lang) => {
     const slug = (entry.titleEnglish || entry.title).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
-    return `https://animesuge.cz/anime/${slug}/ep-${ep}`;
+    return `https://www.animesuge.ltd/anime/${slug}/ep-${ep}`;
+  }},
+  { name: "AniSuge2", buildUrl: (entry, ep, lang) => {
+    const slug = (entry.titleEnglish || entry.title).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+    return `https://animesuge.to/anime/${slug}/ep-${ep}`;
   }},
   { name: "HiAnime", buildUrl: (entry, ep, lang) => `https://hianime.to/watch/${entry.anilistId.replace('anime/', '')}-${entry.anilistId}?ep=${ep}` },
 ];
