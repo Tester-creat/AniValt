@@ -801,7 +801,8 @@ function renderBrowse() {
         </div>
       </div>
       <div class="genre-picker">
-        <select class="select" data-action="browse-genre-select">
+        <input type="text" class="input" id="genreSearchInput" placeholder="Search genre by name..." data-action="genre-search">
+        <select class="select" id="genreSelect" data-action="browse-genre-select">
           <option value="">Select Genre...</option>
           ${BROWSE_GENRES.map(g => `<option value="${g}" ${uiState.browse.genre === g ? "selected" : ""}>${g}</option>`).join("")}
         </select>
@@ -1384,6 +1385,16 @@ function handleClick(event) {
   if (action === "browse-mode") { loadBrowse(actionTarget.dataset.mode); return; }
   if (action === "browse-genre") { loadBrowse("genre", actionTarget.dataset.genre); return; }
   if (action === "browse-genre-select") { loadBrowse("genre", event.target.value); return; }
+  if (action === "genre-search") {
+    const query = event.target.value.toLowerCase();
+    const selectEl = document.getElementById("genreSelect");
+    if (selectEl && query.length >= 2) {
+      const filtered = BROWSE_GENRES.filter(g => g.toLowerCase().includes(query));
+      selectEl.innerHTML = `<option value="">Select Genre...</option>${filtered.map(g => `<option value="${g}">${g}</option>`).join("")}`;
+      selectEl.focus();
+    }
+    return;
+  }
   if (action === "browse-initial") { const initial = actionTarget.dataset.initial; const genresForLetter = GENRE_ALPHABET[initial] || []; if (genresForLetter.length) loadBrowse("genre", genresForLetter[0]); return; }
   if (action === "watch-back") { closeWatchView(); return; }
   if (action === "watch-prev") { if (currentWatchId) switchEpisode(currentWatchId, currentEpisode - 1); return; }
