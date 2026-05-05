@@ -651,7 +651,16 @@ body.is-scrolling .discover-card .discover-card__body {
   border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-glow);
   background: rgba(20,20,34,0.75);
 }
-.search-layout { display: flex; flex-direction: column; gap: 44px; }
+.search-layout { display: grid; grid-template-columns: 240px 1fr; gap: 24px; }
+@media (max-width: 768px) { .search-layout { grid-template-columns: 1fr; } }
+
+.search-filters { background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: var(--radius-lg); padding: 16px; height: fit-content; position: sticky; top: 0; }
+.filter-section { margin-bottom: 16px; }
+.filter-title { font-size: 0.78em; font-weight: 600; color: var(--text2); margin-bottom: 8px; }
+.filter-range { display: flex; align-items: center; gap: 8px; }
+.filter-input { width: 100%; font-size: 0.82em; padding: 8px; }
+.filter-input:disabled { opacity: 0.5; cursor: not-allowed; }
+.filter-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 
 /* ── WATCH VIEW — FIX: No double scroll ─────────────── */
 /*

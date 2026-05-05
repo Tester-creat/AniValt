@@ -122,7 +122,7 @@ const uiState = {
     subtitle: "", results: [], loading: false, error: "",
     requestId: 0, initialized: false
   },
-  search: { query: "", results: [], loading: false, error: "", requestId: 0 },
+  search: { query: "", results: [], loading: false, error: "", requestId: 0, filters: { yearMin: 0, yearMax: 0, scoreMin: 0, episodesMin: 0, status: "" } },
   watch: {
     forceFallback: false, sidebarCollapsed: false,
     streamLoaded: false, lastEndedKey: "", episodeGroupIndex: 0,
@@ -880,6 +880,25 @@ function renderSearch() {
       <input id="searchPageInput" class="input search-hero__input" type="search" placeholder="Search anime titles" value="${escapeHtml(uiState.search.query)}">
     </section>
     <div class="search-layout">
+      <aside class="search-filters">
+        <div class="filter-section">
+          <div class="filter-title">Year</div>
+          <div class="filter-range"><input type="number" class="input filter-input" placeholder="Min" value="${uiState.search.filters.yearMin || ""}" data-filter="yearMin" min="1990" max="2026"><span>–</span><input type="number" class="input filter-input" placeholder="Max" value="${uiState.search.filters.yearMax || ""}" data-filter="yearMax" min="1990" max="2026"></div>
+        </div>
+        <div class="filter-section">
+          <div class="filter-title">Score</div>
+          <div class="filter-range"><input type="number" class="input filter-input" placeholder="Min" value="${uiState.search.filters.scoreMin || ""}" data-filter="scoreMin" min="60" max="100" step="5"><span>–</span><input type="number" class="input filter-input" placeholder="Max" value="" disabled></div>
+        </div>
+        <div class="filter-section">
+          <div class="filter-title">Episodes</div>
+          <div class="filter-range"><input type="number" class="input filter-input" placeholder="Min" value="${uiState.search.filters.episodesMin || ""}" data-filter="episodesMin" min="1"></div>
+        </div>
+        <div class="filter-section">
+          <div class="filter-title">Status</div>
+          <div class="filter-chips">${["", "RELEASING", "FINISHED", "NOT_YET_RELEASED"].map(s => `<button type="button" class="chip ${uiState.search.filters.status === s ? "is-active" : ""}" data-filter="status" data-value="${s}">${s || "All"}</button>`).join("")}</div>
+        </div>
+        <button type="button" class="action-button" data-action="clear-filters" style="width:100%;margin-top:8px;">Clear Filters</button>
+      </aside>
       <section class="section">
         <div class="section__head">
           <div class="section__copy"><div class="section__title">Search in My Library</div><div class="section__sub">Local matches update instantly as you type.</div></div>
@@ -891,7 +910,21 @@ function renderSearch() {
         <div class="section__head">
           <div class="section__copy"><div class="section__title">AniList Results</div><div class="section__sub">Add fresh results directly into AniVault.</div></div>
         </div>
-        ${uiState.search.loading ? renderEmptyState("...", "Searching AniList", "AniVault is looking for matching anime.") : uiState.search.error ? renderEmptyState("!", "Search is offline right now", uiState.search.error) : uiState.search.query.trim().length < 2 ? renderEmptyState("GO", "Search AniList", "Type at least two characters to load AniList results.") : uiState.search.results.length ? `<div class="browse-results">${uiState.search.results.map((media) => renderSearchCard(media)).join("")}</div>` : renderEmptyState("0", "No AniList results found", "Try a different spelling or a shorter search term.")}
+        const f = uiState.search.filters;
+  const filteredResults = uiState.search.results.filter(m => {
+    if (f.yearMin && (!m.seasonYear || m.seasonYear < f.yearMin)) return false;
+    if (f.yearMax && (!m.seasonYear || m.seasonYear > f.yearMax)) return false;
+    if (f.scoreMin && (!m.averageScore || m.averageScore < f.scoreMin)) return false;
+    if (f.episodesMin && (!m.episodes || m.episodes < f.episodesMin)) return false;
+    if (f.status && m.status !== f.status) return false;
+    return true;
+  });
+  const totalFiltered = filteredResults.length, totalResults = uiState.search.results.length;
+  return `
+        <div class="section__head">
+          <div class="section__copy"><div class="section__title">AniList Results${totalFiltered !== totalResults ? ` (${totalFiltered}/${totalResults})` : ""}</div><div class="section__sub">Add fresh results directly into AniVault.</div></div>
+        </div>
+        ${uiState.search.loading ? renderEmptyState("...", "Searching AniList", "AniVault is looking for matching anime.") : uiState.search.error ? renderEmptyState("!", "Search is offline right now", uiState.search.error) : uiState.search.query.trim().length < 2 ? renderEmptyState("GO", "Search AniList", "Type at least two characters to load AniList results.") : filteredResults.length ? `<div class="browse-results">${filteredResults.map((media) => renderSearchCard(media)).join("")}</div>` : renderEmptyState("0", "No results match filters", "Try adjusting your filters.")}
       </section>
     </div>
   </div>`;
@@ -1365,9 +1398,12 @@ function handleClick(event) {
   if (action === "skip-completion-rating") { document.querySelector(".rating-overlay")?.remove(); finalizeCompletion(Number(actionTarget.dataset.id)); return; }
   if (action === "remove-from-library") { removeFromLibrary(Number(actionTarget.dataset.id)); return; }
   if (action === "switch-episode-group") { const newGroupIndex = parseInt(actionTarget.dataset.groupIndex, 10); if (!isNaN(newGroupIndex) && currentWatchId) { currentEpisodeGroupIndex = newGroupIndex; uiState.watch.episodeGroupIndex = currentEpisodeGroupIndex; renderApp(); } return; }
+  if (action === "clear-filters") { uiState.search.filters = { yearMin: 0, yearMax: 0, scoreMin: 0, episodesMin: 0, status: "" }; renderApp(); return; }
+  if (actionTarget.dataset.filter === "status") { uiState.search.filters.status = actionTarget.dataset.value; renderApp(); return; }
 }
 function handleInput(event) {
   if (event.target.id === "librarySearchInput") { uiState.library.query = event.target.value; uiState.focusInputId = "librarySearchInput"; renderApp(); return; }
+  if (event.target.dataset.filter) { const key = event.target.dataset.filter; uiState.search.filters[key] = parseInt(event.target.value, 10) || 0; return; }
   if (["searchPageInput", "navSearchInput", "mobileNavSearchInput"].includes(event.target.id)) {
     uiState.search.query = event.target.value; currentTab = "search";
     uiState.navSearchOpen = event.target.id === "navSearchInput";
@@ -1433,6 +1469,35 @@ function init() {
   window.addEventListener("keydown", handleKeydown); window.addEventListener("message", handleMessage);
   window.addEventListener("resize", () => document.querySelectorAll("[data-row-track]").forEach(track => syncScrollButtons(track.id)));
   if (uiState.search.query.trim().length >= 2) scheduleAniListSearch(uiState.search.query);
+
+  /* Notification system: check every 6 hours for new episodes */
+  if ("Notification" in window && Notification.permission === "default") Notification.requestPermission();
+  setInterval(async () => {
+    const airing = getAnimeEntries().filter(e => e.status === "watching");
+    for (const entry of airing.slice(0, 5)) {
+      try {
+        const data = await fetch(`https://graphql.anilist.co`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: `query($id: Int) { Media(id: $id) { id episodes status } }`, variables: { id: entry.anilistId } }) });
+        const json = await data.json();
+        const media = json.data?.Media;
+        if (media && media.episodes > entry.episodes && media.status === "RELEASING") {
+          new Notification("New episode available!", { body: `${entry.title} now has ${media.episodes} episodes!`, icon: entry.cover });
+        }
+      } catch (e) {}
+    }
+  }, 6 * 60 * 60 * 1000);
+
+  /* Touch gestures: swipe left/right on episode list to mark watched */
+  let touchStartX = 0, touchStartY = 0;
+  document.addEventListener("touchstart", (e) => { touchStartX = e.touches[0].clientX; touchStartY = e.touches[0].clientY; }, { passive: true });
+  document.addEventListener("touchend", (e) => {
+    if (!currentWatchId) return;
+    const touchEndX = e.changedTouches[0].clientX, touchEndY = e.changedTouches[0].clientY;
+    const deltaX = touchEndX - touchStartX, deltaY = touchEndY - touchStartY;
+    if (Math.abs(deltaX) > 50 && Math.abs(deltaX) > Math.abs(deltaY)) {
+      if (deltaX < -50) { markEpisodeWatched(currentWatchId, currentEpisode); showToast("Marked episode " + currentEpisode + " as watched", "success"); }
+      else if (deltaX > 50 && currentEpisode > 1) { switchEpisode(currentWatchId, currentEpisode - 1); showToast("Previous episode", "info"); }
+    }
+  }, { passive: true });
 
   /* FIX #4: is-scrolling class hides hover panels while scrolling */
   let _scrollTimeout = 0;
