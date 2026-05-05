@@ -125,7 +125,7 @@ const uiState = {
   browse: {
     mode: "seasonal", genre: "Action", title: "This Season",
     subtitle: "", results: [], loading: false, error: "",
-    requestId: 0, initialized: false
+    requestId: 0, initialized: false, page: 1, hasMore: true
   },
   search: { query: "", results: [], loading: false, error: "", requestId: 0, filters: { yearMin: 0, yearMax: 0, scoreMin: 0, episodesMin: 0, status: "" } },
   watch: {
@@ -730,7 +730,31 @@ async function loadBrowse(mode, genre = uiState.browse.genre) {
   let title = "This Season", subtitle = `${season.charAt(0)}${season.slice(1).toLowerCase()} releases, sorted by popularity.`;
   if (mode === "top") { variables = { page: 1, perPage: 30, sort: ["SCORE_DESC"] }; title = "Top Rated"; subtitle = "High scoring anime from AniList."; }
   else if (mode === "popular") { variables = { page: 1, perPage: 30, sort: ["POPULARITY_DESC"] }; title = "Most Popular"; subtitle = "Heavy hitters with the biggest audiences."; }
-  else if (mode === "genre") { variables = { page: 1, perPage: 30, sort: ["SCORE_DESC"], genre }; title = `${genre} Highlights`; subtitle = `Top rated picks in ${genre}.`; }
+  else if (mode === "genre") { variables = { page: uiState.browse.page + 1, perPage: 30, sort: ["SCORE_DESC"], genre }; title = `${genre || "All"} Highlights`; subtitle = `Top rated picks. Page ${uiState.browse.page + 1}.`; }
+async function loadBrowseMore() {
+  if (uiState.browse.loading || !uiState.browse.hasMore) return;
+  const mode = uiState.browse.mode, genre = uiState.browse.genre;
+  const requestId = ++uiState.browse.requestId;
+  const season = getSeasonFromDate(new Date()), seasonYear = new Date().getFullYear();
+  const nextPage = uiState.browse.page + 1;
+  let variables = { page: nextPage, perPage: 30, sort: ["POPULARITY_DESC"] };
+  if (mode === "top") variables = { page: nextPage, perPage: 30, sort: ["SCORE_DESC"] };
+  else if (mode === "genre") variables = { page: nextPage, perPage: 30, sort: ["SCORE_DESC"], genre };
+  else variables = { page: nextPage, perPage: 30, sort: ["POPULARITY_DESC"], season, seasonYear };
+  uiState.browse.loading = true; uiState.browse.error = ""; queueRender();
+  try {
+    const data = await fetchAniList(BROWSE_QUERY, variables);
+    if (requestId !== uiState.browse.requestId) return;
+    const newResults = data.Page.media.map(adaptAniListMedia);
+    if (newResults.length === 0) { uiState.browse.hasMore = false; }
+    else { uiState.browse.results = [...uiState.browse.results, ...newResults]; uiState.browse.page = nextPage; }
+    uiState.browse.loading = false; queueRender();
+    showToast(`Loaded page ${nextPage}`, "info");
+  } catch (error) {
+    if (requestId !== uiState.browse.requestId) return;
+    uiState.browse.loading = false; uiState.browse.error = error.message; queueRender();
+  }
+}
   else { variables = { page: 1, perPage: 30, sort: ["POPULARITY_DESC"], season, seasonYear }; }
   try {
     const data = await fetchAniList(BROWSE_QUERY, variables);
@@ -787,7 +811,7 @@ function renderQuickActionCard(anime, source) {
 function renderBrowseCard(anime) { return renderQuickActionCard(anime, "browse"); }
 function renderSearchCard(anime) { return renderQuickActionCard(anime, "search"); }
 function renderBrowse() {
-  const alphabetLetters = Object.keys(GENRE_ALPHABET).map(letter => `<button type="button" class="chip" data-action="browse-initial" data-initial="${letter}">${letter}</button>`).join("");
+  const alphabetLetters = Object.keys(GENRE_ALPHABET).map(letter => `<button type="button" class="chip" data-action="browse-initial" data-initial="${letter}">${letter}</button>`).join("") + `<button type="button" class="chip" data-action="browse-initial" data-initial="ALL">ALL</button>`;
   return `
   <div class="page page--browse">
     <div class="page-hero"><div class="page-title">Browse AniList</div><div class="page-subtitle">Seasonal picks, genres, top rated favorites, and audience hits.</div></div>
@@ -816,7 +840,7 @@ function renderBrowse() {
       </div>
       <div class="status-line">${escapeHtml(uiState.browse.title)}${uiState.browse.subtitle ? ` - ${escapeHtml(uiState.browse.subtitle)}` : ""}</div>
     </section>
-    ${uiState.browse.loading ? renderEmptyState("...", "Loading AniList results", "AniVault is pulling the latest browse results.") : uiState.browse.error ? renderEmptyState("!", "Browse is offline right now", uiState.browse.error) : uiState.browse.results.length ? `<section class="browse-results discover-grid">${uiState.browse.results.map((media) => renderBrowseCard(media)).join("")}</section>` : renderEmptyState("0", "No results yet", "Choose a browse mode to load anime from AniList.")}
+    ${uiState.browse.loading ? renderEmptyState("...", "Loading AniList results", "AniVault is pulling the latest browse results.") : uiState.browse.error ? renderEmptyState("!", "Browse is offline right now", uiState.browse.error) : uiState.browse.results.length ? `<section class="browse-results discover-grid">${uiState.browse.results.map((media) => renderBrowseCard(media)).join("")}</section>${uiState.browse.hasMore ? `<div style="text-align:center;padding:20px;"><button type="button" class="action-button" data-action="browse-load-more" ${uiState.browse.loading ? "disabled" : ""}>${uiState.browse.loading ? "Loading..." : "Load More"}</button></div>` : `<div class="muted" style="text-align:center;padding:20px;">No more results</div>`}` : renderEmptyState("0", "No results yet", "Choose a browse mode to load anime from AniList.")}
   </div>`;
 }
 
@@ -1394,18 +1418,28 @@ function handleClick(event) {
   if (action === "set-library-filter") { uiState.library.filter = actionTarget.dataset.filter; renderApp(); return; }
   if (action === "browse-mode") { loadBrowse(actionTarget.dataset.mode); return; }
   if (action === "browse-genre") { loadBrowse("genre", actionTarget.dataset.genre); return; }
-  if (action === "browse-genre-select") { loadBrowse("genre", event.target.value); return; }
+  if (action === "browse-genre-select") { 
+    const value = event.target.value;
+    if (value === "CLEAR" || value === "") { uiState.browse.page = 1; uiState.browse.hasMore = true; loadBrowse("seasonal"); }
+    else { loadBrowse("genre", value); }
+    return; 
+  }
   if (action === "genre-search") {
     const query = event.target.value.toLowerCase();
     const selectEl = document.getElementById("genreSelect");
-    if (selectEl && query.length >= 2) {
-      const filtered = BROWSE_GENRES.filter(g => g.toLowerCase().includes(query));
-      selectEl.innerHTML = `<option value="">Select Genre...</option>${filtered.map(g => `<option value="${g}">${g}</option>`).join("")}`;
-      selectEl.focus();
+    let options = [];
+    if (query.length >= 1) {
+      const existing = BROWSE_GENRES.filter(g => g.toLowerCase().includes(query));
+      if (query.length >= 2 && existing.length === 0) options.push(`<option value="${event.target.value.toUpperCase()}">Search: "${event.target.value}"</option>`);
+      options = options.concat(existing.map(g => `<option value="${g}">${g}</option>`));
     }
+    if (options.length === 0) options = BROWSE_GENRES.map(g => `<option value="${g}">${g}</option>`);
+    selectEl.innerHTML = `<option value="CLEAR">🔄 Show All Anime (No Filter)</option>${options.join("")}`;
+    selectEl.focus();
     return;
   }
-  if (action === "browse-initial") { const initial = actionTarget.dataset.initial; const genresForLetter = GENRE_ALPHABET[initial] || []; if (genresForLetter.length) loadBrowse("genre", genresForLetter[0]); return; }
+  if (action === "browse-initial") { const initial = actionTarget.dataset.initial; const genresForLetter = GENRE_ALPHABET[initial] || []; if (genresForLetter.length || initial === "ALL") { loadBrowse(initial === "ALL" ? "seasonal" : "genre", genresForLetter[0] || ""); } return; }
+  if (action === "browse-load-more") { loadBrowseMore(); return; }
   if (action === "watch-back") { closeWatchView(); return; }
   if (action === "watch-prev") { if (currentWatchId) switchEpisode(currentWatchId, currentEpisode - 1); return; }
   if (action === "watch-next") { if (currentWatchId) switchEpisode(currentWatchId, currentEpisode + 1); return; }
