@@ -25,22 +25,27 @@ const TOAST_TITLES = {
   info: "AniVault",
 };
 const BROWSE_GENRES = [
-  "Action",
-  "Adventure",
-  "Comedy",
-  "Drama",
-  "Fantasy",
-  "Horror",
-  "Mecha",
-  "Mystery",
-  "Psychological",
-  "Romance",
-  "Sci-Fi",
-  "Slice of Life",
-  "Sports",
-  "Supernatural",
-  "Thriller",
+  "Action", "Adventure", "Cars", "Comedy", "Dementia", "Demons", "Drama", "Dub", "Ecchi", "Fantasy", "Game", "Harem", "Hentai", "Historical", "Horror", "Josei", "Kids", "Magic", "Martial Arts", "Mecha", "Military", "Music", "Mystery", "Parody", "Police", "Psychological", "Romance", "Samurai", "School", "Sci-Fi", "Seinen", "Shoujo", "Shoujo Ai", "Shounen", "Shounen Ai", "Slice of Life", "Space", "Sports", "Super Power", "Supernatural", "Thriller", "Vampire", "Yaoi", "Yuri", "Isekai", "Mahou Shoujo", "Gourmet", "Workplace", "Suspense", "Noir", "Fortune", "Cyberpunk", "CGDCT", "Idol", "Musical", "Documentary", "News", "Cooking", "pets", "Dancing", "Vehicles", "K两块", "Soap", "Thriller", "Practical", "Gender Bender", "Harem", "Reverse Harem", "Otaku", "Cultural", "Educational", "Engineering", "Fillery"
 ];
+const GENRE_ALPHABET = {
+  A: ["Action", "Adventure", "Adult", "Animation"],
+  C: ["Cars", "Comedy", "Cooking"],
+  D: ["Dementia", "Demons", "Documentary", "Drama", "Dub"],
+  E: ["Ecchi"],
+  F: ["Fantasy", "Food"],
+  G: ["Game", "Gourmet"],
+  H: ["Harem", "Hentai", "Historical", "Horror"],
+  I: ["Idol", "Isekai"],
+  J: ["Josei"],
+  K: ["Kids"],
+  M: ["Magic", "Mahou Shoujo", "Martial Arts", "Mecha", "Military", "Music", "Mystery"],
+  P: ["Parody", "Police", "Psychological"],
+  R: ["Romance"],
+  S: ["Samurai", "School", "Sci-Fi", "Seinen", "Shoujo", "Shoujo Ai", "Shounen", "Shounen Ai", "Slice of Life", "Space", "Sports", "Super Power", "Supernatural"],
+  T: ["Thriller"],
+  V: ["Vampire"],
+  Y: ["Yaoi", "Yuri"],
+};
 
 const SEARCH_QUERY = `query ($search: String, $page: Int, $perPage: Int) {
   Page(page: $page, perPage: $perPage) {
@@ -782,6 +787,7 @@ function renderQuickActionCard(anime, source) {
 function renderBrowseCard(anime) { return renderQuickActionCard(anime, "browse"); }
 function renderSearchCard(anime) { return renderQuickActionCard(anime, "search"); }
 function renderBrowse() {
+  const alphabetLetters = Object.keys(GENRE_ALPHABET).map(letter => `<button type="button" class="chip" data-action="browse-initial" data-initial="${letter}">${letter}</button>`).join("");
   return `
   <div class="page page--browse">
     <div class="page-hero"><div class="page-title">Browse AniList</div><div class="page-subtitle">Seasonal picks, genres, top rated favorites, and audience hits.</div></div>
@@ -793,8 +799,15 @@ function renderBrowse() {
             return `<button type="button" class="chip ${active}" data-action="browse-mode" data-mode="${mode}">${label}</button>`;
           }).join("")}
         </div>
+      </div>
+      <div class="genre-picker">
+        <select class="select" data-action="browse-genre-select">
+          <option value="">Select Genre...</option>
+          ${BROWSE_GENRES.map(g => `<option value="${g}" ${uiState.browse.genre === g ? "selected" : ""}>${g}</option>`).join("")}
+        </select>
+        <div class="alphabet-nav">${alphabetLetters}</div>
         <div class="genre-pills">
-          ${BROWSE_GENRES.map((genre) => {
+          ${BROWSE_GENRES.slice(0, 20).map((genre) => {
             const active = uiState.browse.mode === "genre" && uiState.browse.genre === genre ? "is-active" : "";
             return `<button type="button" class="chip ${active}" data-action="browse-genre" data-genre="${genre}">${genre}</button>`;
           }).join("")}
@@ -1370,6 +1383,8 @@ function handleClick(event) {
   if (action === "set-library-filter") { uiState.library.filter = actionTarget.dataset.filter; renderApp(); return; }
   if (action === "browse-mode") { loadBrowse(actionTarget.dataset.mode); return; }
   if (action === "browse-genre") { loadBrowse("genre", actionTarget.dataset.genre); return; }
+  if (action === "browse-genre-select") { loadBrowse("genre", event.target.value); return; }
+  if (action === "browse-initial") { const initial = actionTarget.dataset.initial; const genresForLetter = GENRE_ALPHABET[initial] || []; if (genresForLetter.length) loadBrowse("genre", genresForLetter[0]); return; }
   if (action === "watch-back") { closeWatchView(); return; }
   if (action === "watch-prev") { if (currentWatchId) switchEpisode(currentWatchId, currentEpisode - 1); return; }
   if (action === "watch-next") { if (currentWatchId) switchEpisode(currentWatchId, currentEpisode + 1); return; }

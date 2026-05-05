@@ -518,6 +518,10 @@ body::before {
 }
 .discover-modes { display: flex; gap: 6px; }
 .genre-pills { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+.genre-picker { margin-top: 12px; }
+.genre-picker .select { width: 100%; margin-bottom: 8px; }
+.alphabet-nav { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; }
+.alphabet-nav .chip { font-size: 0.75em; padding: 4px 8px; }
 .status-line { font-size: 0.83em; color: var(--text3); margin-top: 8px; font-weight: 500; }
 
 /* ── DISCOVER CARDS — ShuttleTV style ──────────────── */
