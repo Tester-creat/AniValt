@@ -879,6 +879,8 @@ function getGroupForEpisode(episode, groups) {
 /* WATCH VIEW */
 const STREAM_PROVIDERS = [
   { name: "MegaPlay", buildUrl: (entry, ep, lang) => `https://megaplay.buzz/stream/ani/${entry.anilistId}/${ep}/${lang}` },
+  { name: "VidNest", buildUrl: (entry, ep, lang) => `https://vidnest.fun/anime/${entry.anilistId}/${ep}/${lang}` },
+  { name: "VidPlus", buildUrl: (entry, ep, lang) => `https://player.vidplus.to/embed/anime/${entry.anilistId}/${ep}?dub=${lang === "dub"}` },
   { name: "VidSrc", buildUrl: (entry, ep, lang) => `https://vidsrc.cc/v2/embed/anime/ani${entry.anilistId}/${ep}/${lang}` },
   { name: "HiAnime", buildUrl: (entry, ep, lang) => `https://hianime.to/watch/${entry.anilistId.replace('anime/', '')}-${entry.anilistId}?ep=${ep}` },
 ];
