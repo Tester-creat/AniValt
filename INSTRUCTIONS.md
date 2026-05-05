@@ -1,216 +1,197 @@
-Refine and fix the streaming UI to resolve interaction bugs, improve layout stability, and complete missing core features.
+Fix layout overflow issues, hover behavior bugs, scrolling conflicts, and incomplete data handling in the streaming UI.
 
 IMPORTANT:
-This is a streaming platform UI. Focus on stability, accessibility, and continuous user flow. Avoid fragile UI behavior.
+Focus on clean layout boundaries, correct layering, and complete data representation. Avoid fragile UI behavior.
 
 ---
 
-# 1. SEARCH INPUT BUG (CRITICAL)
+# 1. FIX ADD BUTTON DROPDOWN WIDTH & TEXT WRAPPING
 
 Problem:
-Typing a single character removes focus from the search input, forcing the user to click again.
+The dropdown that appears after clicking "Add" is constrained to the small button width, causing text wrapping.
 
 Fix:
 
-* Preserve input focus during typing
-* Prevent unnecessary re-renders while typing
-* Do NOT recreate the input element on every keystroke
-
-Implementation guidance:
-
-* Use debouncing for search (e.g., 300ms delay)
-* Update results without replacing the input field
-* Avoid full component re-render on input change
-
-Goal:
-User should type continuously without interruption.
-
----
-
-# 2. STICKY EPISODE GROUP SELECTOR
-
-Problem:
-Episode group selector scrolls away.
-
-Fix:
-
-* Make episode group selector sticky at the top of the episode panel
+* Ensure dropdown width is NOT tied to the button size
+* Set a minimum width for the dropdown
 
 Implementation:
 
-* Use `position: sticky; top: 0;`
-* Add background to prevent overlap issues
-* Maintain z-index so it stays above episode list
+* Use `min-width: 180px` (or appropriate size)
+* Use `white-space: nowrap` for options
+* Use padding for readability
 
 Goal:
-User can switch episode groups anytime without scrolling up.
+Dropdown should appear as a proper menu, not squeezed into a button.
 
 ---
 
-# 3. STICKY SUB/DUB + RATING BAR (TOP & BOTTOM LOCK)
-
-Fix layout into 3 zones:
-
-TOP (sticky):
-
-* Sub/Dub selector
-* Episode group selector
-
-MIDDLE (scrollable):
-
-* Episode list
-
-BOTTOM (sticky):
-
-* Rating system
-* Status selector (Watching / Completed / Dropped / Paused / Plan)
-
-Implementation:
-
-* Use flex column layout
-* Middle section: `overflow-y: auto`
-* Bottom bar: `position: sticky; bottom: 0;`
-
-Goal:
-Controls are always accessible without scrolling extremes.
-
----
-
-# 4. FIX DROPDOWN BEING CUT OFF (CRITICAL UI BUG)
+# 2. FIX HOVER PANEL DETACHING / FLOATING BUG
 
 Problem:
-Dropdown menus are clipped inside anime cards.
+Anime details (hover panel) appear detached or “hanging” when scrolling.
 
 Cause:
-Parent containers likely use `overflow: hidden`
+The hover panel is likely using `position: absolute` without proper parent anchoring.
 
 Fix:
 
-* Allow dropdown to escape card boundaries
+* Ensure hover panel is positioned relative to the card container
+* Use `position: relative` on the card
+* Keep hover content inside the card bounds OR properly layered above it
 
-Implementation options:
+Alternative:
 
-1. Set parent containers to `overflow: visible`
-2. OR render dropdown as a floating layer using `position: absolute` or `fixed`
-3. Use high `z-index` for dropdown
-4. Ensure dropdown is not nested inside clipped container
-
-Goal:
-Dropdown should fully expand and be visible above all UI elements.
-
----
-
-# 5. ADD STATUS MANAGEMENT SYSTEM (MISSING CORE FEATURE)
-
-Add full status control:
-
-Statuses:
-
-* Watching
-* Completed
-* Paused
-* Dropped
-* Plan to Watch
-
-Requirements:
-
-* Show current status on card
-* Allow changing status anytime
-* Update state instantly
-* Reflect changes across UI
-
-UI:
-
-* Use dropdown or bottom sheet (mobile-friendly)
-
----
-
-# 6. IMPROVE ANIME CARD ACTIONS
-
-Fix behavior:
-
-* Do NOT hide actions inside fragile dropdowns
-* Primary actions should be visible:
-
-  * Add / In Library
-  * Status indicator
-
-Enhancements:
-
-* Show “In Library” state clearly
-* Show progress (Episode X)
-* Optional: show rating
+* Convert hover panel into a controlled overlay instead of CSS-only hover
 
 Goal:
-User understands state without opening dropdowns.
+Hover details should stay visually attached to the card at all times.
 
 ---
 
-# 7. ADD NETFLIX-STYLE RECOMMENDATION ROWS
-
-Add dynamic rows:
-
-* “Because You Watched [Title]”
-* “Recommended For You”
-* “Continue Watching”
-* “Trending For You”
-
-Requirements:
-
-* Rows should reuse existing data (no need for real ML)
-* Use simple logic:
-
-  * same genre
-  * related titles
-  * recently watched
-
----
-
-# 8. ALLOW SECTION REPETITION (IMPORTANT)
+# 3. REMOVE DOUBLE SCROLLBAR (CRITICAL UX ISSUE)
 
 Problem:
-UI feels static and predictable
+There are two vertical scrollbars:
+
+* One inside a container (unnecessary)
+* One on the page (correct)
 
 Fix:
 
-* Allow multiple recommendation rows
-* Repeat patterns with different data sources
+* Remove internal vertical scrolling unless absolutely necessary
+* Only ONE main page scroll should exist
 
-Example:
+Implementation:
 
-* Because You Watched Naruto
-* Because You Watched Bleach
+* Remove `overflow-y: auto` from unnecessary containers
+* Keep scrolling only on:
+
+  * episode list (if needed)
+  * main page
 
 Goal:
-Make the homepage feel alive and personalized.
+No nested scroll confusion. Scrolling should feel natural.
 
 ---
 
-# 9. MOBILE-FIRST INTERACTION IMPROVEMENTS
+# 4. FIX HOVER CONTENT VISIBILITY ON SCROLL
 
-* Ensure all controls are thumb-friendly
-* Avoid tiny buttons
-* Use spacing generously
-* Use bottom sheets for complex actions (optional)
+Problem:
+Hover content remains visible or misaligned when scrolling.
+
+Fix:
+
+* Hide hover state when scrolling starts
+* Or convert hover to click-based interaction (especially for mobile)
+
+Implementation:
+
+* Add scroll listener to reset hover state
+* Or toggle hover via JS instead of pure CSS
+
+Goal:
+No floating or stuck UI elements during scroll.
 
 ---
 
-# 10. PERFORMANCE & STABILITY
+# 5. ADD COMPLETE ANIME TAG SYSTEM
 
-* Avoid full re-renders on small interactions
-* Update only necessary parts of UI
-* Keep state consistent across components
+Problem:
+Only a limited set of tags is available.
+
+Fix:
+
+* Fetch and display ALL available tags from API (AniList or equivalent)
+
+Implementation:
+
+* Use full tag query (e.g., `MediaTagCollection` in AniList)
+* Store tags in state
+* Display tags dynamically
+
+Goal:
+User should see full genre/tag coverage (e.g., Ecchi, Mecha, Isekai, etc.)
 
 ---
+
+# 6. FIX EPISODE COUNT (CRITICAL DATA ISSUE)
+
+Problem:
+Anime like One Piece only show 1 episode.
+
+Likely Cause:
+
+* API query only returns limited or incorrect episode data
+
+Fix:
+
+* Ensure correct API fields are requested:
+
+  * total episodes
+  * episode list or streaming episodes
+
+AniList note:
+
+* `episodes` field gives total count
+* detailed episode lists may require external source (e.g., streaming provider)
+
+Implementation:
+
+* Use total episode count if full list unavailable
+* Generate episode placeholders if needed
+
+Example:
+If episodes = 1160:
+Generate:
+Episode 1 → Episode 1160
+
+---
+
+# 7. HANDLE LARGE EPISODE COUNTS PROPERLY
+
+* Combine with existing grouping logic (1–50, 51–100, etc.)
+* Ensure full episode range is available
+
+---
+
+# 8. IMPROVE DATA FALLBACKS
+
+If API does not provide:
+
+* episode list → generate sequential list
+* tags → fallback to genre list
+
+Goal:
+No anime should appear incomplete.
+
+---
+
+# 9. GENERAL LAYOUT STABILITY
+
+* Ensure all floating elements have proper z-index
+* Avoid overflow clipping
+* Keep UI visually contained and predictable
+
+---
+
+
+⏳ Next Steps
+Before we add any features, we need to fix the current errors:
+Fix the type="module" CORS issue — I recommend using a local server
+Clean up the broken app.js string formatting — The template literals have syntax errors from the upload
+Fix escapeHtml function — The spaces inside quotes are breaking it
+Fix arrow function syntax — (tab) = > should be (tab) =>
 
 # OUTPUT EXPECTATION
 
-Refactor layout, state usage, and interaction logic to:
+Refactor layout and data handling to:
 
-* Fix input focus issues
-* Keep important controls sticky and accessible
-* Ensure dropdowns render correctly above UI
-* Add missing streaming features (status, recommendations)
-* Improve overall usability and flow
+* Fix dropdown sizing and readability
+* Anchor hover panels correctly
+* Remove duplicate scrollbars
+* Ensure hover UI behaves correctly during scroll
+* Fetch and display complete anime tags
+* Fix episode count issues for long-running series
 
-Final result should feel stable, responsive, and comparable to a modern streaming platform experience.
+Final result should be visually stable, data-complete, and free of layout glitches.
