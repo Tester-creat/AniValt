@@ -997,7 +997,7 @@ const STREAM_PROVIDERS = [
     const slug = (entry.titleEnglish || entry.title).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
     return `https://animesuge.to/anime/${slug}/ep-${ep}`;
   }},
-  { name: "HiAnime", buildUrl: (entry, ep, lang) => `https://hianime.to/watch/${entry.anilistId.replace('anime/', '')}-${entry.anilistId}?ep=${ep}` },
+  { name: "HiAnime", buildUrl: (entry, ep, lang) => `https://hianime.re/watch/${entry.anilistId.replace('anime/', '')}?ep=${ep}` },
 ];
 
 function buildStreamUrl(entry, episode, language, providerIndex = 0) {
