@@ -103,7 +103,7 @@ This implementation plan transforms AniVault with a glassmorphism visual redesig
     - Create helper functions for test assertions
     - _Requirements: N/A (testing infrastructure)_
 
-- [ ] 6. Implement property-based tests for data layer
+- [x] 6. Implement property-based tests for data layer
   - [x] 6.1 Write property test for library round-trip preservation (P1)
     - **Property 1: Library data round-trip preservation**
     - **Validates: Requirements 12.1, 12.2, 12.4**
@@ -112,7 +112,7 @@ This implementation plan transforms AniVault with a glassmorphism visual redesig
     - Run 100+ iterations with varied entry structures
     - _Requirements: 12.1, 12.2, 12.4_
   
-  - [-] 6.2 Write property test for normalization idempotence (P2)
+  - [x] 6.2 Write property test for normalization idempotence (P2)
     - **Property 2: Entry normalization is idempotent**
     - **Validates: Requirements 12.2, 12.3**
     - Generate arbitrary objects (malformed, partial, over-populated)
@@ -120,7 +120,7 @@ This implementation plan transforms AniVault with a glassmorphism visual redesig
     - Test with null, undefined, missing fields, invalid types
     - _Requirements: 12.2, 12.3_
   
-  - [~] 6.3 Write property test for status coercion (P7)
+  - [x] 6.3 Write property test for status coercion (P7)
     - **Property 7: Status normalization rejects invalid values**
     - **Validates: Requirements 12.2, 12.4**
     - Generate random strings as status values (empty, numeric, special chars)
@@ -128,8 +128,8 @@ This implementation plan transforms AniVault with a glassmorphism visual redesig
     - Test with all valid STATUS_OPTIONS to ensure they pass through unchanged
     - _Requirements: 12.2, 12.4_
 
-- [ ] 7. Implement property-based tests for provider system
-  - [~] 7.1 Write property test for provider schema invariant (P3)
+- [x] 7. Implement property-based tests for provider system
+  - [x] 7.1 Write property test for provider schema invariant (P3)
     - **Property 3: Provider schema invariant**
     - **Validates: Requirements 4.1, 6.1, 6.3**
     - Iterate over STREAM_PROVIDERS array
@@ -137,7 +137,7 @@ This implementation plan transforms AniVault with a glassmorphism visual redesig
     - Test after adding/removing providers from array
     - _Requirements: 4.1, 6.1, 6.3_
   
-  - [~] 7.2 Write property test for provider URL validity (P4)
+  - [x] 7.2 Write property test for provider URL validity (P4)
     - **Property 4: Provider buildUrl returns valid HTTPS URL**
     - **Validates: Requirements 5.3, 6.5**
     - Generate random anime entries with positive anilistId
@@ -146,7 +146,7 @@ This implementation plan transforms AniVault with a glassmorphism visual redesig
     - Run 100+ iterations with varied inputs
     - _Requirements: 5.3, 6.5_
   
-  - [~] 7.3 Write property test for provider fallback cycling (P5)
+  - [x] 7.3 Write property test for provider fallback cycling (P5)
     - **Property 5: Provider fallback cycles through all active providers**
     - **Validates: Requirements 7.1, 7.4**
     - Generate random starting provider index
@@ -155,8 +155,8 @@ This implementation plan transforms AniVault with a glassmorphism visual redesig
     - Test with different numbers of active providers
     - _Requirements: 7.1, 7.4_
 
-- [ ] 8. Implement property-based tests for UI behavior
-  - [~] 8.1 Write property test for search debounce (P6)
+- [x] 8. Implement property-based tests for UI behavior
+  - [x] 8.1 Write property test for search debounce (P6)
     - **Property 6: Search debounce fires exactly once per input burst**
     - **Validates: Requirements 9.4**
     - Generate random keystroke sequences with timing simulation (use fake timers)
@@ -164,7 +164,7 @@ This implementation plan transforms AniVault with a glassmorphism visual redesig
     - Test with multiple bursts separated by > 350ms (should fire multiple times)
     - _Requirements: 9.4_
   
-  - [~] 8.2 Write property test for text contrast (P8)
+  - [x] 8.2 Write property test for text contrast (P8)
     - **Property 8: Text contrast meets WCAG AA**
     - **Validates: Requirements 2.4, 15.3**
     - Generate random text/background color pairs from CSS variables
@@ -173,62 +173,62 @@ This implementation plan transforms AniVault with a glassmorphism visual redesig
     - Test in both dark and light themes
     - _Requirements: 2.4, 15.3_
 
-- [ ] 9. Implement accessibility enhancements
-  - [~] 9.1 Add ARIA labels to icon-only buttons
+- [x] 9. Implement accessibility enhancements
+  - [x] 9.1 Add ARIA labels to icon-only buttons
     - Add aria-label attributes to all icon-only buttons (search, settings, hamburger menu, scroll controls)
     - Add aria-label to fullscreen toggle, provider switch buttons
     - Ensure all interactive icons have descriptive labels
     - _Requirements: 15.2_
   
-  - [~] 9.2 Add keyboard navigation support
+  - [x] 9.2 Add keyboard navigation support
     - Ensure all interactive elements are keyboard accessible (tab order, enter/space activation)
     - Add visible focus indicators to all focusable elements
     - Test tab navigation through all pages (home, library, browse, search, watch view)
     - _Requirements: 15.1_
   
-  - [~] 9.3 Add alt text to all images
+  - [x] 9.3 Add alt text to all images
     - Add alt attributes to all <img> elements (anime covers, banners, posters)
     - Use getDisplayTitle(entry) for alt text on anime images
     - Add aria-label to decorative images or use alt=""
     - _Requirements: 15.4_
   
-  - [~] 9.4 Run automated accessibility audit
+  - [x] 9.4 Run automated accessibility audit
     - Run axe-core or similar tool on all pages
     - Fix any ARIA, contrast, or label coverage issues reported
     - Verify keyboard navigation works for all interactive elements
     - Test with screen reader (manual verification)
     - _Requirements: 15.1, 15.2, 15.3, 15.4_
 
-- [ ] 10. Final integration and wiring
-  - [~] 10.1 Verify provider fallback mechanism works end-to-end
+- [x] 10. Final integration and wiring
+  - [x] 10.1 Verify provider fallback mechanism works end-to-end
     - Test 120s timer triggers fallback to next provider
     - Test toast notification appears on provider switch
     - Test all providers exhausted scenario shows fallback card
     - Test manual provider switch resets timer
     - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5_
   
-  - [~] 10.2 Verify library data preservation
+  - [x] 10.2 Verify library data preservation
     - Load existing library from localStorage
     - Verify all entries render correctly with new design
     - Verify no data loss after redesign (status, episodesWatched, rating, notes, sessionLog)
     - Test export/import functionality preserves all fields
     - _Requirements: 12.1, 12.2, 12.3, 12.4, 12.5_
   
-  - [~] 10.3 Test responsive behavior across devices
+  - [x] 10.3 Test responsive behavior across devices
     - Test on mobile (320px-767px), tablet (768px-1023px), desktop (1024px+)
     - Verify hero section, cards, navigation adapt correctly
     - Verify touch targets are ≥44x44px on mobile
     - Test watch view layout collapses to single column on mobile
     - _Requirements: 13.1, 13.2, 13.3, 13.4, 13.5_
   
-  - [~] 10.4 Run performance audit
+  - [x] 10.4 Run performance audit
     - Run Lighthouse audit targeting ≥90 Performance score
     - Verify CSS animations use transform/opacity only (no layout-triggering properties)
     - Verify images outside viewport are lazy-loaded
     - Verify debounce applied to scroll event handlers
     - _Requirements: 14.1, 14.2, 14.3, 14.4, 14.5_
 
-- [~] 11. Final checkpoint - Ensure all tests pass
+- [x] 11. Final checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 ## Notes

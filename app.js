@@ -519,9 +519,9 @@ function renderContinueCard(entry) {
   const image = entry.banner || entry.cover;
   const poster = entry.cover || entry.banner;
   return `<button type="button" class="continue-card" data-action="open-watch" data-id="${entry.id}">
-    <div class="continue-card__bg">${image ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(getDisplayTitle(entry))}">` : ""}</div>
+    <div class="continue-card__bg">${image ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(getDisplayTitle(entry))}" loading="lazy">` : ""}</div>
     <div class="continue-card__content">
-      <div class="continue-card__poster">${poster ? `<img src="${escapeHtml(poster)}" alt="${escapeHtml(getDisplayTitle(entry))}">` : ""}</div>
+      <div class="continue-card__poster">${poster ? `<img src="${escapeHtml(poster)}" alt="${escapeHtml(getDisplayTitle(entry))}" loading="lazy">` : ""}</div>
       <div class="continue-card__meta">
         <div class="continue-card__title">${escapeHtml(getDisplayTitle(entry))}</div>
         <div class="continue-card__progress">${escapeHtml(formatEpisodeLabel(entry))}</div>
@@ -543,7 +543,7 @@ function renderPosterCard(entry, options = {}) {
   const showScoreChip = context === "grid" || context === "completed";
   const scoreChip = showScoreChip && entry.rating ? `<span class="chip-chip">&#11088; ${entry.rating} - ${escapeHtml(getRatingLabel(entry.rating))}</span>` : "";
   return `<button type="button" class="poster-card ${context === "grid" ? "poster-card--grid" : ""}" data-action="${action}" data-id="${entry.id}">
-    <div class="poster-card__media">${entry.cover ? `<img src="${escapeHtml(entry.cover)}" alt="${escapeHtml(getDisplayTitle(entry))}">` : ""}</div>
+    <div class="poster-card__media">${entry.cover ? `<img src="${escapeHtml(entry.cover)}" alt="${escapeHtml(getDisplayTitle(entry))}" loading="lazy">` : ""}</div>
     <div class="poster-card__body">
       <div class="poster-card__meta-row">${badge}${entry.averageScore ? `<span class="chip-chip">Score ${entry.averageScore}</span>` : ""}</div>
       <div class="poster-card__title">${escapeHtml(getDisplayTitle(entry))}</div>${scoreChip}
@@ -712,8 +712,8 @@ function renderLibrary() {
         </div>
       </div>
       <div class="toolbar-grid">
-        <input id="librarySearchInput" class="input" type="search" placeholder="Filter your library" value="${escapeHtml(uiState.library.query)}">
-        <select id="librarySortSelect" class="select">
+        <input id="librarySearchInput" class="input" type="search" placeholder="Filter your library" aria-label="Filter library by title, genre, or notes" value="${escapeHtml(uiState.library.query)}">
+        <select id="librarySortSelect" class="select" aria-label="Sort library entries">
           <option value="default" ${uiState.library.sort === "default" ? "selected" : ""}>Default</option>
           <option value="alpha" ${uiState.library.sort === "alpha" ? "selected" : ""}>A-Z</option>
           <option value="alpha-desc" ${uiState.library.sort === "alpha-desc" ? "selected" : ""}>Z-A</option>
@@ -837,7 +837,7 @@ function renderDiscoverCard(media, source) {
   const title = media.title.english || media.title.romaji;
   const meta = [media.averageScore ? `Score ${media.averageScore}` : "", media.episodes ? formatCount(media.episodes, "episode") : "Episode total unknown"].filter(Boolean).join(" • ");
   return `<article class="discover-card">
-    <div class="discover-card__media">${media.coverImage.large ? `<img src="${escapeHtml(media.coverImage.large)}" alt="${escapeHtml(title)}">` : ""}</div>
+    <div class="discover-card__media">${media.coverImage.large ? `<img src="${escapeHtml(media.coverImage.large)}" alt="${escapeHtml(title)}" loading="lazy">` : ""}</div>
     <div class="discover-card__body">
       <div class="discover-card__title">${escapeHtml(title)}</div>
       <div class="discover-card__meta">${escapeHtml(meta)}</div>
@@ -861,7 +861,7 @@ function renderQuickActionCard(anime, source) {
   const title = anime.title && anime.title.english ? anime.title.english : anime.title.romaji;
   const meta = [anime.averageScore ? `Score ${anime.averageScore}` : "", anime.episodes ? formatCount(anime.episodes, "episode") : "Episode total unknown"].filter(Boolean).join(" • ");
   return `<article class="discover-card">
-    <div class="discover-card__media">${anime.coverImage && anime.coverImage.large ? `<img src="${escapeHtml(anime.coverImage.large)}" alt="${escapeHtml(title)}">` : ""}</div>
+    <div class="discover-card__media">${anime.coverImage && anime.coverImage.large ? `<img src="${escapeHtml(anime.coverImage.large)}" alt="${escapeHtml(title)}" loading="lazy">` : ""}</div>
     <div class="discover-card__body">
       <div class="discover-card__title">${escapeHtml(title)}</div>
       <div class="discover-card__meta">${escapeHtml(meta)}</div>
@@ -889,8 +889,8 @@ function renderBrowse() {
         </div>
       </div>
       <div class="genre-picker">
-        <input type="text" class="input" id="genreSearchInput" placeholder="Search genre by name..." data-action="genre-search">
-        <select class="select" id="genreSelect" data-action="browse-genre-select">
+        <input type="text" class="input" id="genreSearchInput" placeholder="Search genre by name..." aria-label="Search genre by name" data-action="genre-search">
+        <select class="select" id="genreSelect" aria-label="Select genre to browse" data-action="browse-genre-select">
           <option value="">Select Genre...</option>
           ${BROWSE_GENRES.map(g => `<option value="${g}" ${uiState.browse.genre === g ? "selected" : ""}>${g}</option>`).join("")}
         </select>
@@ -989,10 +989,10 @@ function renderSearch() {
     <section class="search-hero">
       <div class="page-title">Search AniList</div>
       <div class="page-subtitle">Find something new, then add it straight into your private library.</div>
-      <input id="searchPageInput" class="input search-hero__input" type="search" placeholder="Search anime titles" value="${escapeHtml(uiState.search.query)}">
+      <input id="searchPageInput" class="input search-hero__input" type="search" placeholder="Search anime titles" aria-label="Search anime titles" value="${escapeHtml(uiState.search.query)}">
     </section>
     <div class="search-layout">
-      <aside class="search-filters">
+      <aside class="search-filters" aria-label="Search filters">
         <div class="filter-section">
           <div class="filter-title">Year</div>
           <div class="filter-range"><input type="number" class="input filter-input" placeholder="Min" value="${uiState.search.filters.yearMin || ""}" data-filter="yearMin" min="1990" max="2026"><span>–</span><input type="number" class="input filter-input" placeholder="Max" value="${uiState.search.filters.yearMax || ""}" data-filter="yearMax" min="1990" max="2026"></div>
@@ -1208,7 +1208,7 @@ function renderEpisodeListHtml(entry, groupIndex) {
     const episodeMeta = cachedEpisodeData.episodes[episodeNumber] || {};
     const episodeName = episodeMeta.name || `Episode ${episodeNumber}`;
     const thumbnail = episodeMeta.thumbnail || "";
-    return `<button type="button" class="ep-row ${isCurrent ? "current" : ""} ${isWatched ? "watched" : ""}" data-action="set-episode" data-ep="${episodeNumber}"><span class="ep-num">${isWatched ? " &#10003; " : ""}${episodeNumber}</span><span class="ep-name">${escapeHtml(episodeName)}</span><span class="ep-dur">${escapeHtml(durationLabel)}</span>${thumbnail ? `<div class="ep-thumbnail-preview"><img src="${escapeHtml(thumbnail)}" alt="${escapeHtml(episodeName)}"></div>` : ""}</button>`;
+    return `<button type="button" class="ep-row ${isCurrent ? "current" : ""} ${isWatched ? "watched" : ""}" data-action="set-episode" data-ep="${episodeNumber}"><span class="ep-num">${isWatched ? " &#10003; " : ""}${episodeNumber}</span><span class="ep-name">${escapeHtml(episodeName)}</span><span class="ep-dur">${escapeHtml(durationLabel)}</span>${thumbnail ? `<div class="ep-thumbnail-preview"><img src="${escapeHtml(thumbnail)}" alt="${escapeHtml(episodeName)}" loading="lazy"></div>` : ""}</button>`;
   }).join("");
 }
 function paintEpisodeList(id) {
@@ -1317,7 +1317,7 @@ function renderWatchView() {
   const currentEpMeta = cachedEpisodeData.episodes[currentEpisode] || {};
   const episodeSynopsis = currentEpMeta.synopsis || "";
   return `<div class="page page--watch"><div class="watch-layout" id="watchViewContainer">
-    <aside class="watch-sidebar watch-sidebar--left">
+    <aside class="watch-sidebar watch-sidebar--left" aria-label="Anime info and settings">
       <div class="watch-meta"><div class="watch-title">${escapeHtml(getDisplayTitle(entry))}</div><div class="watch-meta__row"><span class="${getStatusClass(entry.status)}">${escapeHtml(STATUS_LABELS[entry.status])}</span>${entry.averageScore ? `<span class="watch-badge">AniList ${entry.averageScore}</span>` : ""}${entry.year ? `<span class="watch-badge">${entry.year}</span>` : ""}</div></div>
       <div class="watch-language-sticky"><div class="language-toggle" role="group" aria-label="Audio language"><button type="button" class="${entry.language === "sub" ? "is-active" : ""}" data-action="switch-language" data-lang="sub">SUB</button><button type="button" class="${entry.language === "dub" ? "is-active" : ""}" data-action="switch-language" data-lang="dub">DUB</button></div></div>
       <div class="watch-sidebar__body watch-sidebar__body--compact"><div class="current-episode-synopsis">${episodeSynopsis ? `<div class="ep-synopsis-label">Ep ${currentEpisode}: ${escapeHtml(currentEpMeta.name || "")}</div><div class="ep-synopsis-text">${escapeHtml(episodeSynopsis)}</div>` : `<div class="ep-synopsis-label">Episode ${currentEpisode}</div><div class="ep-synopsis-text muted">No synopsis available</div>`}</div></div>
@@ -1325,9 +1325,9 @@ function renderWatchView() {
     </aside>
     <section class="watch-player">
       <div class="watch-player__frame">${currentUrl && !uiState.watch.forceFallback ? `<iframe src="${escapeHtml(currentUrl)}" title="${escapeHtml(getDisplayTitle(entry))}" allow="autoplay; fullscreen" allowfullscreen data-watch-iframe></iframe>` : `<div class="watch-player__fallback"><div class="watch-player__fallback-card"><div class="watch-title">No stream available for this title via ${provider.name}</div><div class="muted">Try switching providers below or search manually.</div><a class="action-button" href="${escapeHtml(fallbackUrl)}" target="_blank" rel="noopener">Search on HiAnime -&gt;</a></div></div>`}</div>
-      <div class="watch-player__controls"><button type="button" class="secondary-button" data-action="watch-prev" ${currentEpisode <= 1 ? "disabled" : ""}>&larr; Prev</button><strong class="watch-player__ep-label">Ep ${currentEpisode} / ${entry.episodes || "?"}</strong><button type="button" class="secondary-button" data-action="watch-next" ${currentEpisode >= totalEpisodes ? "disabled" : ""}>Next &rarr;</button><button type="button" class="secondary-button" data-action="switch-provider" ${STREAM_PROVIDERS.length <= 1 ? "disabled" : ""} title="Switch provider">${provider.name}</button><button type="button" class="secondary-button watch-fs-btn" data-action="toggle-fullscreen" title="Fullscreen (F)">&#x26F6;</button></div>
+      <div class="watch-player__controls"><button type="button" class="secondary-button" data-action="watch-prev" ${currentEpisode <= 1 ? "disabled" : ""}>&larr; Prev</button><strong class="watch-player__ep-label">Ep ${currentEpisode} / ${entry.episodes || "?"}</strong><button type="button" class="secondary-button" data-action="watch-next" ${currentEpisode >= totalEpisodes ? "disabled" : ""}>Next &rarr;</button><button type="button" class="secondary-button" data-action="switch-provider" ${STREAM_PROVIDERS.length <= 1 ? "disabled" : ""} title="Switch provider" aria-label="Switch streaming provider">${provider.name}</button><button type="button" class="secondary-button watch-fs-btn" data-action="toggle-fullscreen" title="Fullscreen (F)" aria-label="Toggle fullscreen">&#x26F6;</button></div>
     </section>
-    <aside class="watch-sidebar watch-sidebar--right">
+    <aside class="watch-sidebar watch-sidebar--right" aria-label="Episode list">
       <div class="watch-sidebar__body"><div id="episodeGroupSelector"></div><div class="episode-list" id="episodeList"></div></div>
       <div class="watch-sidebar-footer-buttons"><button type="button" class="action-button" data-action="watch-mark">Mark Watched</button><button type="button" class="secondary-button" data-action="remove-from-library" data-id="${entry.id}">Remove</button><button type="button" class="secondary-button" data-action="watch-back"> &larr; Back</button></div>
     </aside>
@@ -1366,7 +1366,7 @@ function renderOverlay() {
   }
   if (uiState.overlay.type === "detail") {
     const entry = getEntry(uiState.overlay.id); if (!entry) return "";
-    return `<div class="overlay" data-action="close-overlay"><div class="overlay-card" role="dialog" aria-modal="true" aria-label="Anime details" data-overlay-card><div class="overlay-card__hero"><div class="overlay-card__cover">${entry.cover ? `<img src="${escapeHtml(entry.cover)}" alt="${escapeHtml(getDisplayTitle(entry))}">` : ""}</div><div class="overlay-card__meta"><div class="overlay-card__title">${escapeHtml(getDisplayTitle(entry))}</div><div class="muted">${escapeHtml(formatCount(entry.episodes || 0, "episode"))}${entry.year ? ` • ${entry.year}` : ""}</div><div class="watch-meta__row"><span class="${getStatusClass(entry.status)}">${escapeHtml(STATUS_LABELS[entry.status])}</span>${entry.averageScore ? `<span class="watch-badge">AniList ${entry.averageScore}</span>` : ""}</div><select class="select" data-status-select="${entry.id}">${STATUS_OPTIONS.map(status => `<option value="${status}" ${entry.status === status ? "selected" : ""}>${STATUS_LABELS[status]}</option>`).join("")}</select></div></div><div class="overlay-card__actions"><button type="button" class="action-button" data-action="open-watch" data-id="${entry.id}"> &#9654; Start Watching</button><button type="button" class="secondary-button" data-action="remove-from-library" data-id="${entry.id}">Remove from Library</button><button type="button" class="nav-button" data-action="close-overlay">Close</button></div></div></div>`;
+    return `<div class="overlay" data-action="close-overlay"><div class="overlay-card" role="dialog" aria-modal="true" aria-label="Anime details" data-overlay-card><div class="overlay-card__hero"><div class="overlay-card__cover">${entry.cover ? `<img src="${escapeHtml(entry.cover)}" alt="${escapeHtml(getDisplayTitle(entry))}" loading="lazy">` : ""}</div><div class="overlay-card__meta"><div class="overlay-card__title">${escapeHtml(getDisplayTitle(entry))}</div><div class="muted">${escapeHtml(formatCount(entry.episodes || 0, "episode"))}${entry.year ? ` • ${entry.year}` : ""}</div><div class="watch-meta__row"><span class="${getStatusClass(entry.status)}">${escapeHtml(STATUS_LABELS[entry.status])}</span>${entry.averageScore ? `<span class="watch-badge">AniList ${entry.averageScore}</span>` : ""}</div><select class="select" data-status-select="${entry.id}">${STATUS_OPTIONS.map(status => `<option value="${status}" ${entry.status === status ? "selected" : ""}>${STATUS_LABELS[status]}</option>`).join("")}</select></div></div><div class="overlay-card__actions"><button type="button" class="action-button" data-action="open-watch" data-id="${entry.id}"> &#9654; Start Watching</button><button type="button" class="secondary-button" data-action="remove-from-library" data-id="${entry.id}">Remove from Library</button><button type="button" class="nav-button" data-action="close-overlay">Close</button></div></div></div>`;
   }
   if (uiState.overlay.type === "settings") {
     const accentColors = [
