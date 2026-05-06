@@ -576,6 +576,69 @@ function renderStatsStrip() {
     <div class="stat-chip"><div class="stat-chip__label">Episodes watched</div><div class="stat-chip__value">${stats.episodesWatched}</div></div>
   </section>`;
 }
+function renderHero() {
+  // Select featured anime: most recently watched OR random "watching" entry
+  const allEntries = getAnimeEntries();
+  if (allEntries.length === 0) return "";
+  
+  // Get most recently watched entry
+  const recentlyWatched = allEntries
+    .filter((entry) => entry.lastWatched > 0)
+    .sort((a, b) => (b.lastWatched || 0) - (a.lastWatched || 0));
+  
+  let featuredEntry = null;
+  
+  if (recentlyWatched.length > 0) {
+    // Use most recently watched
+    featuredEntry = recentlyWatched[0];
+  } else {
+    // Fall back to random "watching" entry
+    const watchingEntries = allEntries.filter((entry) => entry.status === "watching");
+    if (watchingEntries.length > 0) {
+      featuredEntry = watchingEntries[Math.floor(Math.random() * watchingEntries.length)];
+    } else {
+      // No watching entries, return empty
+      return "";
+    }
+  }
+  
+  // Background image: banner > cover > gradient fallback
+  const backgroundImage = featuredEntry.banner || featuredEntry.cover || "";
+  const backgroundStyle = backgroundImage 
+    ? `background-image: url('${escapeHtml(backgroundImage)}');` 
+    : `background: linear-gradient(135deg, var(--accent) 0%, rgba(14, 14, 24, 0.95) 100%);`;
+  
+  // Build subtitle: genres • year • episode count
+  const genreTags = featuredEntry.genres.slice(0, 3).join(" • ");
+  const year = featuredEntry.year || "Unknown year";
+  const episodeCount = featuredEntry.episodes 
+    ? `${featuredEntry.episodes} episodes` 
+    : "Episode count unknown";
+  const subtitle = [genreTags, year, episodeCount].filter(Boolean).join(" • ");
+  
+  // Check if entry is already in library
+  const inLibrary = getEntry(featuredEntry.id) !== null;
+  
+  // CTA buttons
+  const watchButton = `<button type="button" class="hero-cta hero-cta--primary" data-action="open-watch" data-id="${featuredEntry.id}">▶ Watch Now</button>`;
+  const addButton = inLibrary 
+    ? "" 
+    : `<button type="button" class="hero-cta hero-cta--secondary" data-action="open-detail" data-id="${featuredEntry.id}">＋ Add to Library</button>`;
+  
+  return `
+  <section class="hero-section" style="${backgroundStyle}">
+    <div class="hero-section__overlay"></div>
+    <div class="hero-section__content">
+      <h1 class="hero-section__title">${escapeHtml(getDisplayTitle(featuredEntry))}</h1>
+      <div class="hero-section__subtitle">${escapeHtml(subtitle)}</div>
+      <div class="hero-section__actions">
+        ${watchButton}
+        ${addButton}
+      </div>
+    </div>
+  </section>`;
+}
+
 function renderHome() {
   const continueWatching = getContinueWatchingEntries();
   const queueEntries = getEntriesByStatus("queued");
@@ -601,6 +664,7 @@ function renderHome() {
   }
   return `
   <div class="page page--home">
+    ${renderHero()}
     <section class="section">
       <div class="section__head">
         <div class="section__copy">
@@ -981,28 +1045,68 @@ function getGroupForEpisode(episode, groups) {
 }
 
 /* WATCH VIEW */
+// STREAM_PROVIDERS — single source of truth for all streaming providers.
+// Schema: { name, active, idType, buildUrl, notes }
+//   name     — display name shown in the UI
+//   active   — toggle a provider on/off without removing its config
+//   idType   — "anilist" (numeric AniList media ID) or "slug" (title-derived slug)
+//   buildUrl — (entry, ep, lang) => embed URL string
+//   notes    — inline documentation: URL pattern, known limitations, removal reason
 const STREAM_PROVIDERS = [
-  { name: "MegaPlay", buildUrl: (entry, ep, lang) => `https://megaplay.buzz/stream/ani/${entry.anilistId}/${ep}/${lang}` },
-  { name: "VidStream", buildUrl: (entry, ep, lang) => `https://vidstream.sh/embed/${entry.anilistId}/${ep}` },
-  { name: "VidCloud", buildUrl: (entry, ep, lang) => `https://vidcloud.co/embed/${entry.anilistId}/${ep}/${lang}` },
-  { name: "VidNest", buildUrl: (entry, ep, lang) => `https://vidnest.fun/anime/${entry.anilistId}/${ep}/${lang}` },
-  { name: "VidPlus", buildUrl: (entry, ep, lang) => `https://player.vidplus.to/embed/anime/${entry.anilistId}/${ep}?dub=${lang === "dub"}` },
-  { name: "VidLink", buildUrl: (entry, ep, lang) => `https://vidlink.pro/anime/${entry.anilistId}/${ep}/${lang}` },
-  { name: "VidSrc", buildUrl: (entry, ep, lang) => `https://vidsrc.icu/embed/anime/${entry.anilistId}/${ep}/${lang === "dub" ? 1 : 0}` },
-  { name: "AniSuge", buildUrl: (entry, ep, lang) => {
-    const slug = (entry.titleEnglish || entry.title).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
-    return `https://www.animesuge.ltd/anime/${slug}/ep-${ep}`;
-  }},
-  { name: "AniSuge2", buildUrl: (entry, ep, lang) => {
-    const slug = (entry.titleEnglish || entry.title).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
-    return `https://animesuge.to/anime/${slug}/ep-${ep}`;
-  }},
-  { name: "HiAnime", buildUrl: (entry, ep, lang) => `https://hianime.re/watch/${entry.anilistId.replace('anime/', '')}?ep=${ep}` },
+  {
+    // URL pattern: /stream/ani/{anilistId}/{episode}/{lang}
+    // lang values: "sub" | "dub"
+    name: "MegaPlay",
+    active: true,
+    idType: "anilist",
+    buildUrl: (entry, ep, lang) =>
+      `https://megaplay.buzz/stream/ani/${entry.anilistId}/${ep}/${lang}`,
+    notes: "Confirmed working. Supports sub/dub via lang param.",
+  },
+  {
+    // URL pattern: /anime/{anilistId}/{episode}/{lang}
+    // lang values: "sub" | "dub"
+    name: "VidLink",
+    active: true,
+    idType: "anilist",
+    buildUrl: (entry, ep, lang) =>
+      `https://vidlink.pro/anime/${entry.anilistId}/${ep}/${lang}`,
+    notes: "AniList ID-based. Generally reliable for popular series.",
+  },
+  {
+    // URL pattern: /embed/anime/{anilistId}/{episode}/{dubFlag}
+    // dubFlag: 1 = dub, 0 = sub (numeric, not string)
+    name: "VidSrc",
+    active: true,
+    idType: "anilist",
+    buildUrl: (entry, ep, lang) =>
+      `https://vidsrc.icu/embed/anime/${entry.anilistId}/${ep}/${lang === "dub" ? 1 : 0}`,
+    notes: "AniList ID-based. Dub flag is numeric 0/1.",
+  },
+  {
+    // URL pattern: /embed/anime/{anilistId}/{episode}
+    // No explicit lang param — player defaults to available audio track
+    name: "AniPlay",
+    active: true,
+    idType: "anilist",
+    buildUrl: (entry, ep, lang) =>
+      `https://aniplay.co/embed/anime/${entry.anilistId}/${ep}`,
+    notes: "Anime-focused. No explicit dub param; defaults to available audio.",
+  },
+  // --- REMOVED (non-functional) ---
+  // VidStream: speculative URL pattern (/embed/{id}/{ep}), returns 404 for most titles
+  // VidCloud: domain does not resolve; CORS block confirmed
+  // VidNest: CORS block, no iframe embed support
+  // VidPlus: URL pattern unverified, no public documentation available
+  // AniSuge (.ltd): domain blocks iframe embedding via X-Frame-Options
+  // AniSuge2 (.to): domain blocks iframe embedding via X-Frame-Options
+  // HiAnime: redirects to search page rather than a direct embed URL
 ];
 
 function buildStreamUrl(entry, episode, language, providerIndex = 0) {
   if (!entry || !entry.anilistId) return "";
   const provider = STREAM_PROVIDERS[providerIndex] || STREAM_PROVIDERS[0];
+  if (!provider || !provider.active) return "";
   return provider.buildUrl(entry, episode, language);
 }
 function recordWatchTime(id, timestamp = Date.now()) {
