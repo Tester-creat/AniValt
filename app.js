@@ -1353,10 +1353,48 @@ function afterRender() {
   if (currentWatchId) { const activeEpisode = document.querySelector(".ep-row.current"); if (activeEpisode) activeEpisode.scrollIntoView({ block: "nearest" }); renderRatingComponent(currentWatchId, "watchViewRatingContainer"); paintEpisodeList(currentWatchId); const currentEntry = getEntry(currentWatchId); if (currentEntry && franchiseCache[currentEntry.anilistId || currentEntry.id]) renderWatchOrder(currentEntry.anilistId || currentEntry.id, currentWatchOrderSort); setupWatchPlayer(); } else window.clearTimeout(streamFallbackTimer);
 }
 function setupWatchPlayer() {
-  window.clearTimeout(streamFallbackTimer); const iframe = document.querySelector("[data-watch-iframe]"); if (!iframe) return;
+  window.clearTimeout(streamFallbackTimer);
+  const iframe = document.querySelector("[data-watch-iframe]");
+  if (!iframe) return;
+  
   uiState.watch.streamLoaded = false;
-  iframe.addEventListener("load", () => { uiState.watch.streamLoaded = true; window.clearTimeout(streamFallbackTimer); }, { once: true });
-  streamFallbackTimer = window.setTimeout(() => { if (!uiState.watch.streamLoaded && currentWatchId) { uiState.watch.forceFallback = true; renderApp(); showToast(`${STREAM_PROVIDERS[uiState.watch.currentProvider]?.name || "Stream"} did not load. Try switching providers.`, "error"); } }, 7000);
+  
+  // Check if iframe loaded successfully (contentDocument check for cross-origin)
+  const checkIframeLoaded = () => {
+    try {
+      // Try to access iframe content - will throw if cross-origin
+      const doc = iframe.contentDocument || iframe.contentWindow.document;
+      if (doc && doc.body && doc.body.innerHTML.trim().length > 0) {
+        uiState.watch.streamLoaded = true;
+        window.clearTimeout(streamFallbackTimer);
+        return true;
+      }
+    } catch (e) {
+      // Cross-origin - we can't check content, so rely on load event
+    }
+    return false;
+  };
+  
+  // Primary: listen for load event
+  iframe.addEventListener("load", () => {
+    if (checkIframeLoaded()) return;
+    // If load fired but content is empty, still mark as loaded (provider loaded, just no content)
+    uiState.watch.streamLoaded = true;
+    window.clearTimeout(streamFallbackTimer);
+  }, { once: true });
+  
+  // Fallback: 60-second timeout for provider failure detection
+  // This gives providers ample time to load while still catching failures
+  streamFallbackTimer = window.setTimeout(() => {
+    if (!uiState.watch.streamLoaded && currentWatchId) {
+      // Check one more time if iframe actually loaded
+      if (!checkIframeLoaded()) {
+        uiState.watch.forceFallback = true;
+        renderApp();
+        showToast(`${STREAM_PROVIDERS[uiState.watch.currentProvider]?.name || "Stream"} did not load. Try switching providers.`, "error");
+      }
+    }
+  }, 60000); // 60 seconds as requested
 }
 function syncScrollButtons(trackId) {
   const track = document.getElementById(trackId); if (!track) return;
@@ -1479,7 +1517,18 @@ function handleKeydown(event) {
   if (event.shiftKey && event.key.toLowerCase() === "n") { event.preventDefault(); switchEpisode(currentWatchId, currentEpisode + 1); return; }
   if (event.shiftKey && event.key.toLowerCase() === "p") { event.preventDefault(); switchEpisode(currentWatchId, currentEpisode - 1); return; }
   if (event.key === " ") { const iframe = document.querySelector("[data-watch-iframe]"); if (iframe) { event.preventDefault(); iframe.focus(); } }
-  if (event.key.toLowerCase() === "w") { event.preventDefault(); const entry = getEntry(currentWatchId); if (entry) { uiState.watch.currentProvider = (uiState.watch.currentProvider + 1) % STREAM_PROVIDERS.length; uiState.watch.streamLoaded = false; uiState.watch.forceFallback = false; renderApp(); showToast(`Switched to ${STREAM_PROVIDERS[uiState.watch.currentProvider].name}`, "info"); } return; }
+  if (event.key.toLowerCase() === "w") { 
+    event.preventDefault(); 
+    const entry = getEntry(currentWatchId); 
+    if (entry) { 
+      uiState.watch.currentProvider = (uiState.watch.currentProvider + 1) % STREAM_PROVIDERS.length; 
+      uiState.watch.streamLoaded = false; 
+      uiState.watch.forceFallback = false;
+      renderApp(); 
+      showToast(`Switched to ${STREAM_PROVIDERS[uiState.watch.currentProvider].name}`, "info"); 
+    } 
+    return; 
+  }
 }
 function handleMessage(event) {
   if (!event.origin.includes("megaplay.buzz") || !currentWatchId) return;
