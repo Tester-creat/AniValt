@@ -433,6 +433,18 @@ function renderTopNav() {
       </div>
     </div>
 
+    <!-- ⋮ dropdown — appears below the pill when more button is clicked -->
+    <div class="nav-more-dropdown ${uiState.navMenuOpen ? "is-open" : ""}">
+      <button type="button" class="nav-more-item" data-action="export">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        Export Backup
+      </button>
+      <button type="button" class="nav-more-item" data-action="import">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Import Backup
+      </button>
+    </div>
+
     <!-- Search bar — drops below pill when open -->
     <div class="nav-search-drop ${uiState.navSearchOpen ? "is-open" : ""}">
       <input id="navSearchInput" type="search" placeholder="Search anime on AniList…" value="${escapeHtml(uiState.search.query)}" aria-label="Search AniList">
@@ -1496,7 +1508,14 @@ function renderOverlay() {
           </label>
         </div>
       </div>
-      <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--glass-border);text-align:right;">
+      <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--glass-border);">
+        <div class="muted" style="margin-bottom:10px;font-weight:600;">Library Backup</div>
+        <div style="display:flex;gap:10px;">
+          <button type="button" class="action-button" data-action="export" style="flex:1;">&#8593; Export Backup</button>
+          <button type="button" class="secondary-button" data-action="import" style="flex:1;">&#8595; Import Backup</button>
+        </div>
+      </div>
+      <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--glass-border);text-align:right;">
         <button type="button" class="nav-button" data-action="close-overlay">Close</button>
       </div>
     </div></div>`;
@@ -1616,7 +1635,22 @@ function handleClick(event) {
   }
   const action = actionTarget.dataset.action;
   if (action === "tab") { renderTab(actionTarget.dataset.tab); return; }
-  if (action === "toggle-menu") { uiState.navMenuOpen = !uiState.navMenuOpen; renderApp(); return; }
+  if (action === "toggle-menu") {
+    uiState.navMenuOpen = !uiState.navMenuOpen;
+    renderApp();
+    if (uiState.navMenuOpen) {
+      // Close dropdown when clicking anywhere outside it
+      const closeDropdown = (e) => {
+        if (!e.target.closest(".nav-more-dropdown") && !e.target.closest("[data-action='toggle-menu']")) {
+          uiState.navMenuOpen = false;
+          renderApp();
+          document.removeEventListener("click", closeDropdown);
+        }
+      };
+      setTimeout(() => document.addEventListener("click", closeDropdown), 0);
+    }
+    return;
+  }
   if (action === "toggle-nav-search") { uiState.navSearchOpen = !uiState.navSearchOpen; if (uiState.navSearchOpen) currentTab = "search"; renderApp(); return; }
   if (action === "export") { exportData(); return; }
   if (action === "import") { const input = document.getElementById("importInput"); if (input) input.click(); return; }

@@ -333,6 +333,74 @@ body::before {
 }
 .nav-pill-icon svg { display: block; }
 
+/* Small labelled text buttons inside the pill — kept for potential reuse */
+.nav-pill-text { display: none; }
+
+/* ⋮ More dropdown — small menu below the pill */
+.nav-more-dropdown {
+  position: fixed;
+  /* align to the right edge of the pill */
+  top: calc(var(--nav-h) + 6px);
+  right: calc(50% - 360px); /* mirror of pill max-width/2 */
+  background: rgba(18, 18, 28, 0.97);
+  backdrop-filter: blur(32px) saturate(180%);
+  -webkit-backdrop-filter: blur(32px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  padding: 6px;
+  min-width: 180px;
+  z-index: 202;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.55), 0 1px 0 rgba(255,255,255,0.06) inset;
+  /* hidden by default */
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-6px) scale(0.97);
+  transform-origin: top right;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.nav-more-dropdown.is-open {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0) scale(1);
+}
+
+.nav-more-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.85em;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: 9px;
+  text-align: left;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.nav-more-item:hover {
+  background: rgba(255, 255, 255, 0.09);
+  color: #ffffff;
+}
+.nav-more-item svg { flex-shrink: 0; opacity: 0.7; }
+.nav-more-item:hover svg { opacity: 1; }
+
+/* Light theme dropdown */
+[data-theme="light"] .nav-more-dropdown {
+  background: rgba(255, 255, 255, 0.97);
+  border-color: rgba(0, 0, 0, 0.10);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+}
+[data-theme="light"] .nav-more-item { color: rgba(0, 0, 0, 0.65); }
+[data-theme="light"] .nav-more-item:hover { background: rgba(0, 0, 0, 0.05); color: #1c1c1e; }
+
+/* On smaller screens, anchor to the right edge of the viewport */
+@media (max-width: 800px) {
+  .nav-more-dropdown { right: 12px; }
+}
+
 /* Keep old nav-button and icon-button for mobile panel */
 .nav-button {
   padding: 7px 14px; border-radius: var(--radius-sm);
