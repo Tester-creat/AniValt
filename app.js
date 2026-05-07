@@ -399,13 +399,11 @@ function renderTopNav() {
         <div class="nav-brand__logo">AniVault</div>
         <div class="nav-brand__tagline">Your private stream</div>
       </div>
+      <div class="nav-search-left">
+        <input id="navSearchInput" type="search" placeholder="Search AniList" value="${escapeHtml(uiState.search.query)}" aria-label="Search AniList">
+      </div>
       <nav class="nav-center" aria-label="Primary navigation">${tabs}</nav>
       <div class="nav-actions">
-        <div class="nav-search-inline ${uiState.navSearchOpen ? "is-open" : ""}">
-          <span class="icon-search" aria-hidden="true"></span>
-          <input id="navSearchInput" class="input" type="search" placeholder="Search AniList" value="${escapeHtml(uiState.search.query)}">
-        </div>
-        <button type="button" class="icon-button" data-action="toggle-nav-search" aria-label="Open search"><span class="icon-search" aria-hidden="true"></span></button>
         <button type="button" class="nav-button" data-action="export">Export</button>
         <button type="button" class="nav-button" data-action="import">Import</button>
         <button type="button" class="nav-button" data-action="toggle-theme">${uiState.theme === "dark" ? "Light" : "Dark"}</button>
@@ -448,6 +446,7 @@ function renderHeroCarousel(entries) {
     const genres = (entry.genres || []).slice(0, 3);
     const nextEp = (entry.episodesWatched || 0) + 1;
     const totalEp = entry.episodes || "?";
+    const desc = entry.notes ? entry.notes : `Continue watching from episode ${nextEp}`;
     return `<div class="hc-slide${i === 0 ? " is-active" : ""}" data-hc-slide="${i}">
       ${bg ? `<div class="hc-bg" style="background-image:url('${escapeHtml(bg)}')"></div>` : `<div class="hc-bg hc-bg--fallback"></div>`}
       <div class="hc-overlay"></div>
@@ -461,6 +460,7 @@ function renderHeroCarousel(entries) {
           ${entry.year ? `<span class="hc-sep"></span><span>${entry.year}</span>` : ""}
           ${entry.language ? `<span class="hc-sep"></span><span class="hc-lang">${String(entry.language).toUpperCase()}</span>` : ""}
         </div>
+        <div class="hc-desc">${escapeHtml(desc)}</div>
         <div class="hc-progress-track"><div class="hc-progress-fill" style="width:${progress}%"></div></div>
         <div class="hc-actions">
           <button type="button" class="hc-btn-primary" data-action="open-watch" data-id="${entry.id}">&#9654; Resume</button>
@@ -660,8 +660,13 @@ function renderPosterCard(entry, options = {}) {
   const footerLabel = context === "queue" ? "In Queue" : context === "plan" ? episodes : context === "completed" ? rating || "Completed" : meta || STATUS_LABELS[entry.status];
   const showScoreChip = context === "grid" || context === "completed";
   const scoreChip = showScoreChip && entry.rating ? `<span class="chip-chip">&#11088; ${entry.rating} - ${escapeHtml(getRatingLabel(entry.rating))}</span>` : "";
+  const genreTag = entry.genres && entry.genres[0] ? `<span class="poster-card__genre-tag">${escapeHtml(entry.genres[0])}</span>` : "";
   return `<button type="button" class="poster-card ${context === "grid" ? "poster-card--grid" : ""}" data-action="${action}" data-id="${entry.id}">
-    <div class="poster-card__media">${entry.cover ? `<img src="${escapeHtml(entry.cover)}" alt="${escapeHtml(getDisplayTitle(entry))}">` : ""}</div>
+    <div class="poster-card__media">
+      ${entry.cover ? `<img src="${escapeHtml(entry.cover)}" alt="${escapeHtml(getDisplayTitle(entry))}">` : ""}
+      <div class="poster-card__play-overlay"><span class="play-icon">&#9654;</span></div>
+      ${genreTag}
+    </div>
     <div class="poster-card__body">
       <div class="poster-card__meta-row">${badge}${entry.averageScore ? `<span class="chip-chip">Score ${entry.averageScore}</span>` : ""}</div>
       <div class="poster-card__title">${escapeHtml(getDisplayTitle(entry))}</div>${scoreChip}
@@ -678,7 +683,10 @@ function renderMediaRowSection({ sectionId, title, subtitle, entries, emptyIcon,
         <div class="section__title">${escapeHtml(title)}</div>
         <div class="section__sub">${escapeHtml(subtitle)}</div>
       </div>
-      ${renderScrollControls(sectionId, hasEntries && entries.length > 3)}
+      <div class="section__head-right">
+        ${hasEntries && entries.length > 3 ? `<button type="button" class="section__see-all" data-action="tab" data-tab="library">See all</button>` : ""}
+        ${renderScrollControls(sectionId, hasEntries && entries.length > 3)}
+      </div>
     </div>
     ${hasEntries ? `<div class="media-row"><div class="media-row__viewport" id="${sectionId}" data-row-track="${sectionId}"><div class="media-row__track">
       ${entries.map((entry) => renderPosterCard(entry, { context, action, showBadge: context !== "plan" })).join("")}
@@ -719,7 +727,25 @@ function renderHome() {
   }
   return `
   <div class="page page--home">
-    ${renderHeroCarousel(continueWatching)}
+    ${continueWatching.length > 0 ? `<div class="home-hero-layout">
+      ${renderHeroCarousel(continueWatching)}
+      <div class="cw-list">
+        <div class="cw-list__header">Continue Watching</div>
+        ${continueWatching.slice(0, 4).map(entry => {
+          const poster = entry.cover || entry.banner || "";
+          const nextEp = (entry.episodesWatched || 0) + 1;
+          const totalEp = entry.episodes || "?";
+          return `<button type="button" class="cw-list-item" data-action="open-watch" data-id="${entry.id}">
+            <div class="cw-list-item__poster">${poster ? `<img src="${escapeHtml(poster)}" alt="${escapeHtml(getDisplayTitle(entry))}">` : ""}</div>
+            <div class="cw-list-item__info">
+              <div class="cw-list-item__title">${escapeHtml(getDisplayTitle(entry))}</div>
+              <div class="cw-list-item__ep">Ep ${nextEp} / ${totalEp}</div>
+            </div>
+            <div class="cw-list-item__play">&#9654;</div>
+          </button>`;
+        }).join("")}
+      </div>
+    </div>` : renderHeroCarousel(continueWatching)}
     <section class="section section--continue">
       <div class="section__head">
         <div class="section__copy">
@@ -891,8 +917,12 @@ function renderQuickActionCard(anime, source) {
   const existing = getEntryByAnimeId(anime.id);
   const title = anime.title && anime.title.english ? anime.title.english : anime.title.romaji;
   const meta = [anime.averageScore ? `Score ${anime.averageScore}` : "", anime.episodes ? formatCount(anime.episodes, "episode") : "Episode total unknown"].filter(Boolean).join(" • ");
+  const genreTag = anime.genres && anime.genres[0] ? `<span class="discover-card__genre-tag">${escapeHtml(anime.genres[0])}</span>` : "";
   return `<article class="discover-card">
-    <div class="discover-card__media">${anime.coverImage && anime.coverImage.large ? `<img src="${escapeHtml(anime.coverImage.large)}" alt="${escapeHtml(title)}">` : ""}</div>
+    <div class="discover-card__media">
+      ${anime.coverImage && anime.coverImage.large ? `<img src="${escapeHtml(anime.coverImage.large)}" alt="${escapeHtml(title)}">` : ""}
+      ${genreTag}
+    </div>
     <div class="discover-card__body">
       <div class="discover-card__title">${escapeHtml(title)}</div>
       <div class="discover-card__meta">${escapeHtml(meta)}</div>
@@ -1217,17 +1247,67 @@ function renderWatchView() {
   const fallbackUrl = `https://hianime.re/search?keyword=${encodeURIComponent(getDisplayTitle(entry))}`;
   const progressLabel = `${entry.episodesWatched || 0} / ${entry.episodes || "?"} episodes watched`;
   return `<div class="page page--watch"><div class="watch-layout" id="watchViewContainer">
+
+    <!-- LEFT SIDEBAR: title, meta, rating, status, action buttons only -->
     <aside class="watch-sidebar">
-      <div class="watch-meta"><div class="watch-title">${escapeHtml(getDisplayTitle(entry))}</div><div class="watch-meta__row"><span class="${getStatusClass(entry.status)}">${escapeHtml(STATUS_LABELS[entry.status])}</span>${entry.averageScore ? `<span class="watch-badge">AniList ${entry.averageScore}</span>` : ""}${entry.year ? `<span class="watch-badge">${entry.year}</span>` : ""}</div></div>
-      <div class="watch-language-sticky"><div class="language-toggle" role="group" aria-label="Audio language"><button type="button" class="${entry.language === "sub" ? "is-active" : ""}" data-action="switch-language" data-lang="sub">SUB</button><button type="button" class="${entry.language === "dub" ? "is-active" : ""}" data-action="switch-language" data-lang="dub">DUB</button></div></div>
-      <div class="watch-sidebar__body"><div id="episodeGroupSelector"></div><div class="episode-list" id="episodeList"></div></div>
-      <div class="watch-sidebar-bottom"><div class="watch-progress-label">${escapeHtml(progressLabel)}</div><div id="watchViewRatingContainer"></div><div><label class="muted" for="watchStatusSelect">Status</label><select id="watchStatusSelect" class="select" data-status-select="${entry.id}">${STATUS_OPTIONS.map(status => `<option value="${status}" ${entry.status === status ? "selected" : ""}>${STATUS_LABELS[status]}</option>`).join("")}</select></div></div>
-      <div class="watch-sidebar-footer-buttons"><button type="button" class="action-button" data-action="watch-mark">Mark Watched</button><button type="button" class="secondary-button" data-action="remove-from-library" data-id="${entry.id}">Remove from Library</button><button type="button" class="secondary-button" data-action="watch-back"> &larr; Back</button></div>
+      <div class="watch-meta">
+        <div class="watch-title">${escapeHtml(getDisplayTitle(entry))}</div>
+        <div class="watch-meta__row">
+          <span class="${getStatusClass(entry.status)}">${escapeHtml(STATUS_LABELS[entry.status])}</span>
+          ${entry.averageScore ? `<span class="watch-badge">AniList ${entry.averageScore}</span>` : ""}
+          ${entry.year ? `<span class="watch-badge">${entry.year}</span>` : ""}
+        </div>
+      </div>
+      <div class="watch-sidebar-bottom">
+        <div class="watch-progress-label">${escapeHtml(progressLabel)}</div>
+        <div id="watchViewRatingContainer"></div>
+        <div>
+          <label class="muted" for="watchStatusSelect">Status</label>
+          <select id="watchStatusSelect" class="select" data-status-select="${entry.id}">
+            ${STATUS_OPTIONS.map(status => `<option value="${status}" ${entry.status === status ? "selected" : ""}>${STATUS_LABELS[status]}</option>`).join("")}
+          </select>
+        </div>
+      </div>
+      <div class="watch-sidebar-footer-buttons">
+        <button type="button" class="action-button" data-action="watch-mark">Mark Watched</button>
+        <button type="button" class="secondary-button" data-action="remove-from-library" data-id="${entry.id}">Remove from Library</button>
+        <button type="button" class="secondary-button" data-action="watch-back">&larr; Back</button>
+      </div>
     </aside>
-    <section class="watch-player">
-      <div class="watch-player__frame">${currentUrl && !uiState.watch.forceFallback ? `<iframe src="${escapeHtml(currentUrl)}" title="${escapeHtml(getDisplayTitle(entry))}" allow="autoplay; fullscreen" allowfullscreen data-watch-iframe></iframe>` : `<div class="watch-player__fallback"><div class="watch-player__fallback-card"><div class="watch-title">No stream available for this title via ${provider.name}</div><div class="muted">Come back and mark episodes watched manually using the list on the left.</div><a class="action-button" href="${escapeHtml(fallbackUrl)}" target="_blank" rel="noopener">Search on HiAnime -&gt;</a></div></div>`}</div>
-      <div class="watch-player__controls"><button type="button" class="secondary-button" data-action="watch-prev" ${currentEpisode <= 1 ? "disabled" : ""}>&larr; Prev</button><strong class="watch-player__ep-label">Ep ${currentEpisode} / ${entry.episodes || "?"}</strong><button type="button" class="secondary-button" data-action="watch-next" ${currentEpisode >= totalEpisodes ? "disabled" : ""}>Next &rarr;</button><button type="button" class="secondary-button" data-action="switch-provider" ${STREAM_PROVIDERS.length <= 1 ? "disabled" : ""} title="Switch provider">${provider.name}</button><button type="button" class="secondary-button watch-fs-btn" data-action="toggle-fullscreen" title="Fullscreen (F)">&#x26F6;</button></div>
-    </section>
+
+    <!-- RIGHT COLUMN: player on top, episode panel below -->
+    <div class="watch-main">
+
+      <!-- VIDEO PLAYER -->
+      <section class="watch-player">
+        <div class="watch-player__frame">${currentUrl && !uiState.watch.forceFallback
+          ? `<iframe src="${escapeHtml(currentUrl)}" title="${escapeHtml(getDisplayTitle(entry))}" allow="autoplay; fullscreen" allowfullscreen data-watch-iframe></iframe>`
+          : `<div class="watch-player__fallback"><div class="watch-player__fallback-card"><div class="watch-title">No stream available for this title via ${provider.name}</div><div class="muted">Come back and mark episodes watched manually using the episode list below.</div><a class="action-button" href="${escapeHtml(fallbackUrl)}" target="_blank" rel="noopener">Search on HiAnime &rarr;</a></div></div>`
+        }</div>
+        <div class="watch-player__controls">
+          <button type="button" class="secondary-button" data-action="watch-prev" ${currentEpisode <= 1 ? "disabled" : ""}>&larr; Prev</button>
+          <strong class="watch-player__ep-label">Ep ${currentEpisode} / ${entry.episodes || "?"}</strong>
+          <button type="button" class="secondary-button" data-action="watch-next" ${currentEpisode >= totalEpisodes ? "disabled" : ""}>Next &rarr;</button>
+          <button type="button" class="secondary-button" data-action="switch-provider" ${STREAM_PROVIDERS.length <= 1 ? "disabled" : ""} title="Switch provider">${provider.name}</button>
+          <button type="button" class="secondary-button watch-fs-btn" data-action="toggle-fullscreen" title="Fullscreen (F)">&#x26F6;</button>
+        </div>
+      </section>
+
+      <!-- EPISODE PANEL: sub/dub + group selector + episode list -->
+      <div class="watch-episode-panel">
+        <div class="watch-episode-panel__header">
+          <span class="watch-episode-panel__label">Episodes</span>
+          <div class="language-toggle" role="group" aria-label="Audio language">
+            <button type="button" class="${entry.language === "sub" ? "is-active" : ""}" data-action="switch-language" data-lang="sub">SUB</button>
+            <button type="button" class="${entry.language === "dub" ? "is-active" : ""}" data-action="switch-language" data-lang="dub">DUB</button>
+          </div>
+        </div>
+        <div id="episodeGroupSelector"></div>
+        <div class="episode-list" id="episodeList"></div>
+      </div>
+
+    </div><!-- end .watch-main -->
+
   </div><div id="watchOrderMount"></div></div>`;
 }
 
@@ -1469,7 +1549,7 @@ function handleInput(event) {
   if (event.target.id === "librarySearchInput") { uiState.library.query = event.target.value; uiState.focusInputId = "librarySearchInput"; renderApp(); return; }
   if (["searchPageInput", "navSearchInput", "mobileNavSearchInput"].includes(event.target.id)) {
     uiState.search.query = event.target.value; currentTab = "search";
-    uiState.navSearchOpen = event.target.id === "navSearchInput";
+    uiState.navSearchOpen = false; /* nav search is always visible now */
     uiState.focusInputId = event.target.id;
     scheduleAniListSearch(uiState.search.query);
     /* FIX: Do NOT call renderApp() here — it destroys the input and loses focus.

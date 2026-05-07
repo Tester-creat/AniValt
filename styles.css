@@ -8,7 +8,7 @@
 html {
   font-size: 15px;
   scroll-behavior: smooth;
-  background: var(--bg);
+  background: #0f0f1a;
   /* FIX: single scrollbar — never let html scroll horizontally */
   overflow-x: hidden;
   overflow-y: scroll; /* always show ONE scrollbar on the root */
@@ -23,11 +23,11 @@ a { color: inherit; text-decoration: none; }
 
 /* ── DESIGN TOKENS ──────────────────────────────────── */
 :root {
-  /* ShuttleTV-inspired dark palette */
-  --bg:            #0a0a0f;
-  --bg2:           #0d0d14;
-  --surface:       rgba(16, 16, 28, 0.80);
-  --surface2:      rgba(20, 20, 34, 0.70);
+  /* Frosted glass dark palette — deep navy/charcoal base so glass surfaces look transparent */
+  --bg:            #0f0f1a;
+  --bg2:           #13131f;
+  --surface:       rgba(20, 20, 38, 0.70);
+  --surface2:      rgba(25, 25, 45, 0.60);
   --border:        rgba(255, 255, 255, 0.06);
   --border2:       rgba(255, 255, 255, 0.11);
 
@@ -57,34 +57,42 @@ a { color: inherit; text-decoration: none; }
   --radius-sm: 6px;
   --radius-lg: 16px;
   --radius-xl: 24px;
+  --radius-card: 18px;
   --transition: 0.2s ease;
 
   /* Layout */
-  --nav-h:     60px;
+  --nav-h:     64px;
   --mob-nav-h: 56px;
+  --sidebar-w: 260px;
 
-  /* Glass */
-  --glass-bg:        rgba(14, 14, 24, 0.60);
-  --glass-border:    rgba(255, 255, 255, 0.07);
-  --glass-highlight: rgba(255, 255, 255, 0.04);
-  --glass-shadow:    0 8px 32px rgba(0, 0, 0, 0.4);
+  /* Glass — more transparent so the background scene shows through */
+  --glass-bg:        rgba(15, 15, 30, 0.45);
+  --glass-border:    rgba(255, 255, 255, 0.10);
+  --glass-highlight: rgba(255, 255, 255, 0.06);
+  --glass-shadow:    0 8px 32px rgba(0, 0, 0, 0.35);
+
+  /* Card glass — lighter so they float above the background */
+  --glass-card:       rgba(255, 255, 255, 0.07);
+  --glass-card-hover: rgba(255, 255, 255, 0.12);
+  --glass-panel:      rgba(255, 255, 255, 0.05);
+  --shadow-card:      0 4px 24px rgba(0, 0, 0, 0.30), 0 1px 0 rgba(255, 255, 255, 0.08) inset;
 }
 
 [data-theme="light"] {
-  --bg: #f0eef8;
-  --bg2: #e8e5f2;
-  --surface: rgba(255, 253, 255, 0.85);
+  --bg: #dde0ec;
+  --bg2: #d0d4e8;
+  --surface: rgba(255, 255, 255, 0.75);
   --surface2: rgba(240, 236, 250, 0.75);
-  --border: rgba(80, 60, 120, 0.08);
-  --border2: rgba(80, 60, 120, 0.14);
+  --border: rgba(0, 0, 0, 0.08);
+  --border2: rgba(0, 0, 0, 0.12);
   --accent: #6d28d9;
   --accent-bright: #7c3aed;
   --accent-warm: #d95c28;
   --accent-glow: rgba(109, 40, 217, 0.25);
   --accent-glow2: rgba(217, 92, 40, 0.20);
-  --text1: #14112a;
-  --text2: #524e6a;
-  --text3: #807c96;
+  --text1: #1c1c1e;
+  --text2: #636366;
+  --text3: #aeaeb2;
   --badge-watching: #246dd8;
   --badge-completed: #1f9b4d;
   --badge-dropped: #d93636;
@@ -92,9 +100,13 @@ a { color: inherit; text-decoration: none; }
   --badge-plan: #7f63e9;
   --badge-paused: #b45309;
   --glass-bg: rgba(255, 253, 255, 0.65);
-  --glass-border: rgba(80, 60, 120, 0.09);
+  --glass-border: rgba(0, 0, 0, 0.08);
   --glass-highlight: rgba(124, 58, 237, 0.05);
   --glass-shadow: 0 8px 32px rgba(40, 30, 80, 0.10);
+  --glass-card: rgba(255, 255, 255, 0.75);
+  --glass-card-hover: rgba(255, 255, 255, 0.90);
+  --glass-panel: rgba(255, 255, 255, 0.50);
+  --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.10), 0 1px 0 rgba(255, 255, 255, 0.80) inset;
 }
 
 /* ── BASE ───────────────────────────────────────────── */
@@ -121,25 +133,41 @@ body.reduced-motion *, body.reduced-motion *::before, body.reduced-motion *::aft
   transition-duration: 0.01ms !important;
 }
 
-/* ShuttleTV animated gradient bg — blobs that pulse */
+/* ── FROSTED GLASS BACKGROUND — neutral depth layers, no purple blobs ── */
+/*
+  Mimics the Steary UI: a blurred real-world scene behind frosted glass panels.
+  We simulate depth with subtle neutral gradients and a soft noise texture so
+  glass surfaces (backdrop-filter: blur) actually look frosted and transparent.
+*/
 body::before {
   content: "";
   position: fixed;
   inset: 0;
+  /* Layered neutral depth — dark charcoal with very subtle warm/cool tones */
   background:
-    radial-gradient(ellipse 70% 55% at 15% 20%, rgba(124, 58, 237, 0.13) 0%, transparent 65%),
-    radial-gradient(ellipse 55% 45% at 85% 75%, rgba(124, 58, 237, 0.10) 0%, transparent 60%),
-    radial-gradient(ellipse 40% 40% at 50% 50%, rgba(196, 75, 255, 0.05) 0%, transparent 55%);
+    radial-gradient(ellipse 80% 60% at 20% 10%,  rgba(60, 60, 80, 0.55) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 80% 80%,  rgba(40, 40, 60, 0.50) 0%, transparent 55%),
+    radial-gradient(ellipse 50% 70% at 50% 40%,  rgba(30, 30, 45, 0.40) 0%, transparent 65%),
+    linear-gradient(160deg, #1a1a2e 0%, #16213e 40%, #0f3460 100%);
   pointer-events: none;
   z-index: 0;
-  animation: shuttlePulse 18s ease-in-out infinite alternate;
+  /* Slow, very subtle drift — feels like a living background, not a pulsing blob */
+  animation: bgDrift 30s ease-in-out infinite alternate;
 }
 
-@keyframes shuttlePulse {
-  0%   { transform: scale(1) translate(0, 0); opacity: 0.8; }
-  33%  { transform: scale(1.06) translate(-1.5%, 1.5%); opacity: 1; }
-  66%  { transform: scale(1.04) translate(1.5%, -1%); opacity: 0.9; }
-  100% { transform: scale(1.08) translate(0.5%, 1%); opacity: 1; }
+@keyframes bgDrift {
+  0%   { transform: scale(1) translate(0, 0); }
+  50%  { transform: scale(1.03) translate(-1%, 0.5%); }
+  100% { transform: scale(1.02) translate(0.5%, -0.5%); }
+}
+
+/* Light theme: bright frosted glass over a soft warm-white scene */
+[data-theme="light"] body::before {
+  background:
+    radial-gradient(ellipse 80% 60% at 20% 10%,  rgba(200, 195, 230, 0.60) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 80% 80%,  rgba(180, 175, 215, 0.50) 0%, transparent 55%),
+    radial-gradient(ellipse 50% 70% at 50% 40%,  rgba(220, 215, 240, 0.40) 0%, transparent 65%),
+    linear-gradient(160deg, #e8e8f0 0%, #dde0f0 40%, #d0d5e8 100%);
 }
 
 #app { position: relative; z-index: 1; }
@@ -155,10 +183,10 @@ body::before {
   overflow-x: hidden;
   height: calc(100vh - var(--nav-h));
   scrollbar-width: thin;
-  scrollbar-color: rgba(124,58,237,0.3) transparent;
+  scrollbar-color: rgba(124,58,237,0.4) transparent;
 }
-.app-main::-webkit-scrollbar { width: 5px; }
-.app-main::-webkit-scrollbar-thumb { background: rgba(124,58,237,0.35); border-radius: 3px; }
+.app-main::-webkit-scrollbar { width: 4px; }
+.app-main::-webkit-scrollbar-thumb { background: rgba(124,58,237,0.45); border-radius: 2px; }
 
 .content-shell { max-width: 1440px; margin: 0 auto; padding: 0 28px 64px; }
 
@@ -168,7 +196,7 @@ body::before {
   to   { opacity: 1; transform: none; }
 }
 
-/* ── GLASS TOP NAVIGATION — ShuttleTV pill style ─── */
+/* ── GLASS TOP NAVIGATION — Image 2 layout ─── */
 .topnav {
   position: fixed;
   top: 0; left: 0; right: 0;
@@ -187,10 +215,13 @@ body::before {
 
 .topnav__inner {
   max-width: 1440px; margin: 0 auto;
-  display: flex; align-items: center; gap: 24px;
+  display: grid;
+  grid-template-columns: auto 1fr auto auto auto;
+  align-items: center; gap: 16px;
   height: 100%; padding: 0 28px;
 }
 
+.nav-brand { flex-shrink: 0; }
 .nav-brand__logo {
   font-size: 1.35em; font-weight: 900;
   background: linear-gradient(135deg, #a855f7 0%, #7c3aed 100%);
@@ -200,29 +231,56 @@ body::before {
 }
 .nav-brand__tagline { display: none; }
 
-/* ShuttleTV pill nav — centered pill container */
+/* Search on the LEFT — pill-shaped glass */
+.nav-search-left {
+  display: flex; align-items: center;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid var(--glass-border);
+  border-radius: 40px; padding: 0 14px;
+  height: 38px; gap: 8px; min-width: 0;
+  max-width: 260px; width: 100%;
+  transition: all 0.25s ease;
+}
+.nav-search-left:focus-within {
+  background: rgba(255,255,255,0.10);
+  border-color: rgba(124,58,237,0.45);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+.nav-search-left input {
+  background: none; border: none; outline: none;
+  color: var(--text1); font-size: 0.85em; width: 100%;
+}
+.nav-search-left input::placeholder { color: var(--text3); }
+
+/* Tabs CENTERED */
 .nav-center {
-  display: flex; gap: 2px; margin: 0 auto;
+  display: flex; gap: 2px; justify-content: center;
   background: rgba(255,255,255,0.04);
   border: 1px solid var(--glass-border);
   border-radius: 40px; padding: 4px;
 }
 
+/* Underline active indicator */
 .tab-link {
   padding: 7px 20px; border-radius: 30px;
-  border: 1px solid transparent; background: transparent;
+  border: none; background: transparent;
   color: var(--text2); font-size: 0.875em; font-weight: 600;
   cursor: pointer; transition: all 0.25s ease; position: relative;
   white-space: nowrap;
 }
 .tab-link:hover { color: var(--text1); background: rgba(255,255,255,0.06); }
 .tab-link.is-active {
-  color: var(--text1); background: rgba(124,58,237,0.25);
-  border-color: rgba(124,58,237,0.35);
-  box-shadow: 0 0 16px rgba(124,58,237,0.2);
+  color: var(--text1);
+}
+.tab-link.is-active::after {
+  content: '';
+  position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%);
+  width: 20px; height: 2px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-bright));
+  border-radius: 1px;
 }
 
-.nav-actions { display: flex; align-items: center; gap: 8px; }
+.nav-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 
 .nav-button {
   padding: 7px 14px; border-radius: var(--radius-sm);
@@ -257,6 +315,16 @@ body::before {
 .section__title { font-size: 1.15em; font-weight: 800; color: var(--text1); letter-spacing: -0.02em; }
 .section__sub { font-size: 0.8em; color: var(--text3); margin-top: 3px; font-weight: 500; }
 .section__controls { display: flex; gap: 8px; }
+.section__head-right { display: flex; align-items: center; gap: 10px; }
+
+/* "See all" link */
+.section__see-all {
+  font-size: 0.8em; font-weight: 600; color: var(--text3);
+  background: none; border: none; cursor: pointer;
+  padding: 4px 0; transition: color 0.2s ease;
+  white-space: nowrap;
+}
+.section__see-all:hover { color: var(--accent-bright); text-decoration: underline; }
 
 .scroll-btn {
   width: 32px; height: 32px; border-radius: 50%;
@@ -291,11 +359,13 @@ body::before {
 /* ── CONTINUE WATCHING CARDS ───────────────────────── */
 .continue-card {
   position: relative; width: 360px; flex-shrink: 0;
-  aspect-ratio: 16/9; border-radius: var(--radius-lg);
+  aspect-ratio: 16/9; border-radius: var(--radius-card);
   overflow: hidden; cursor: pointer; scroll-snap-align: start;
   border: 1px solid var(--glass-border); padding: 0;
-  background: var(--surface2); transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: var(--glass-shadow);
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  box-shadow: var(--shadow-card);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .continue-card:hover {
   transform: scale(1.03) translateY(-4px);
@@ -348,23 +418,58 @@ body::before {
 /* ── POSTER CARDS ───────────────────────────────────── */
 .poster-card {
   position: relative; width: 155px; flex-shrink: 0;
-  border-radius: var(--radius); overflow: hidden;
+  border-radius: var(--radius-card); overflow: hidden;
   border: 1px solid var(--glass-border); padding: 0; cursor: pointer;
-  background: var(--surface2); scroll-snap-align: start;
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  box-shadow: var(--shadow-card);
+  scroll-snap-align: start;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: var(--glass-shadow);
 }
 .poster-card:hover {
   transform: scale(1.05) translateY(-4px); z-index: 5;
   box-shadow: 0 20px 50px rgba(0,0,0,0.65), 0 0 0 1px rgba(124,58,237,0.3);
   border-color: rgba(124,58,237,0.4);
+  background: var(--glass-card-hover);
 }
-.poster-card__media { width: 155px; height: 220px; overflow: hidden; }
+.poster-card__media { width: 155px; height: 220px; overflow: hidden; position: relative; }
 .poster-card__media img {
   width: 100%; height: 100%; object-fit: cover; display: block;
   transition: transform 0.5s ease;
 }
 .poster-card:hover .poster-card__media img { transform: scale(1.1); }
+
+/* Play button overlay on hover */
+.poster-card__play-overlay {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.35);
+  opacity: 0; transition: opacity 0.25s ease;
+  z-index: 3;
+}
+.poster-card:hover .poster-card__play-overlay { opacity: 1; }
+.poster-card__play-overlay .play-icon {
+  width: 44px; height: 44px; border-radius: 50%;
+  background: rgba(124,58,237,0.85);
+  border: 2px solid rgba(255,255,255,0.3);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.1em; color: white;
+  box-shadow: 0 4px 16px rgba(124,58,237,0.5);
+  transform: scale(0.85); transition: transform 0.25s ease;
+}
+.poster-card:hover .poster-card__play-overlay .play-icon { transform: scale(1); }
+
+/* Genre tag overlay at bottom-left of image */
+.poster-card__genre-tag {
+  position: absolute; bottom: 8px; left: 8px; z-index: 4;
+  font-size: 0.6em; font-weight: 700; padding: 3px 8px;
+  border-radius: 20px; letter-spacing: 0.04em;
+  background: rgba(124,58,237,0.75);
+  border: 1px solid rgba(124,58,237,0.5);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  color: white;
+}
+
 .poster-card::after {
   content: ''; position: absolute; bottom: 0; left: 0; right: 0;
   height: 55%;
@@ -411,23 +516,34 @@ body::before {
 .badge--paused     { background: rgba(251,191,36,0.13); color: var(--badge-paused); border: 1px solid rgba(251,191,36,0.23); }
 .badge--untracked  { background: rgba(255,255,255,0.05); color: var(--text3); border: 1px solid var(--glass-border); }
 
-/* ── STATS STRIP ────────────────────────────────────── */
+/* ── STATS STRIP — floating glass cards row ─────────── */
 .stats-strip {
-  display: flex; gap: 40px; padding: 20px 24px; margin-bottom: 40px;
-  background: var(--glass-bg); backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px); border: 1px solid var(--glass-border);
-  border-radius: var(--radius-lg); overflow-x: auto; scrollbar-width: none;
+  display: flex; gap: 16px; padding: 0; margin-bottom: 40px;
+  overflow-x: auto; scrollbar-width: none;
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  border: none;
+  border-radius: var(--radius-card);
+  padding: 16px;
 }
 .stats-strip::-webkit-scrollbar { display: none; }
-.stat-chip { flex-shrink: 0; min-width: 80px; }
+.stat-chip {
+  flex: 1; flex-shrink: 0; min-width: 100px;
+  background: var(--glass-card);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  padding: 14px 16px;
+}
 .stat-chip__value {
-  font-size: 1.5em; font-weight: 800; color: var(--text1);
-  line-height: 1; letter-spacing: -0.02em;
+  font-size: 1.8em; font-weight: 800; color: var(--text1);
+  line-height: 1; letter-spacing: -0.03em;
   background: linear-gradient(135deg, var(--accent-bright), var(--accent));
   -webkit-background-clip: text; -webkit-text-fill-color: transparent;
   background-clip: text;
 }
-.stat-chip__label { font-size: 0.72em; color: var(--text3); margin-top: 4px; font-weight: 500; }
+.stat-chip__label { font-size: 0.72em; color: var(--text3); margin-top: 6px; font-weight: 500; }
 
 /* ── PAGE HERO ──────────────────────────────────────── */
 .page-hero { padding: 44px 0 28px; border-bottom: 1px solid var(--glass-border); margin-bottom: 28px; }
@@ -502,23 +618,19 @@ body::before {
 .genre-pills { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
 .status-line { font-size: 0.83em; color: var(--text3); margin-top: 8px; font-weight: 500; }
 
-/* ── DISCOVER CARDS — ShuttleTV style ──────────────── */
-/*
-  FIX #2 — hover panel properly anchored:
-  card is relative, body is absolute INSIDE, no overflow:visible needed
-  FIX #4 — body hides on body.is-scrolling
-*/
+/* ── DISCOVER CARDS — Image 2 style ──────────────── */
 .discover-card {
   position: relative;
-  border-radius: var(--radius);
-  overflow: hidden;               /* clip child to card bounds */
-  background: var(--surface2);
-  cursor: pointer;
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-card);
+  cursor: pointer;
   transition: transform 0.28s cubic-bezier(0.4,0,0.2,1),
               box-shadow 0.28s ease,
               border-color 0.28s ease;
-  /* z-index managed on hover so sibling cards don't clip the overlay */
   z-index: 1;
 }
 .discover-card:hover {
@@ -526,26 +638,33 @@ body::before {
   transform: scale(1.04) translateY(-4px);
   box-shadow: 0 20px 50px rgba(0,0,0,0.65), 0 0 0 1px rgba(124,58,237,0.35);
   border-color: rgba(124,58,237,0.4);
+  background: var(--glass-card-hover);
 }
-.discover-card__media { width: 100%; aspect-ratio: 2/3; overflow: hidden; }
+.discover-card__media { width: 100%; aspect-ratio: 2/3; overflow: hidden; position: relative; }
 .discover-card__media img {
   width: 100%; height: 100%; object-fit: cover; display: block;
   transition: transform 0.5s ease;
 }
 .discover-card:hover .discover-card__media img { transform: scale(1.08); }
 
-/*
-  FIX #2: body is absolute, slides up from BOTTOM of the card image
-  overflow: hidden on card clips it cleanly — no hanging/floating
-*/
+/* Genre tag at top-left of image */
+.discover-card__genre-tag {
+  position: absolute; top: 8px; left: 8px; z-index: 4;
+  font-size: 0.6em; font-weight: 700; padding: 3px 8px;
+  border-radius: 20px; letter-spacing: 0.04em;
+  background: rgba(124,58,237,0.75);
+  border: 1px solid rgba(124,58,237,0.5);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  color: white;
+}
+
 .discover-card__body {
   position: absolute; bottom: 0; left: 0; right: 0;
   background: linear-gradient(to top, rgba(0,0,0,0.98) 0%, rgba(0,0,0,0.75) 55%, transparent 100%);
   padding: 36px 12px 12px;
   transform: translateY(100%);
   transition: transform 0.28s cubic-bezier(0.4,0,0.2,1);
-  border-radius: 0 0 var(--radius) var(--radius);
-  /* FIX: keep picker ABOVE the card boundary by making this non-overflow:hidden */
+  border-radius: 0 0 var(--radius-card) var(--radius-card);
   overflow: visible;
 }
 .discover-card:hover .discover-card__body { transform: translateY(0); }
@@ -644,18 +763,17 @@ body.is-scrolling .discover-card .discover-card__body {
 
 .watch-layout {
   display: grid;
-  grid-template-columns: 300px 1fr;
-  /* Fill the remaining height of app-main viewport */
+  grid-template-columns: 240px 1fr;
   height: calc(100vh - var(--nav-h));
   gap: 0;
-  overflow: hidden;  /* FIX: prevent layout from introducing scroll */
+  overflow: hidden;
 }
 
+/* LEFT SIDEBAR — title, meta, rating, status, buttons only (no episodes) */
 .watch-sidebar {
   background: var(--glass-bg); backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px); border-right: 1px solid var(--glass-border);
   display: flex; flex-direction: column;
-  /* FIX: sidebar fills the fixed layout height, NO overflow on itself */
   height: 100%; overflow: hidden;
 }
 .watch-meta { padding: 18px 14px 14px; border-bottom: 1px solid var(--glass-border); flex-shrink: 0; }
@@ -667,6 +785,7 @@ body.is-scrolling .discover-card .discover-card__body {
   border: 1px solid var(--glass-border); backdrop-filter: blur(8px);
 }
 
+/* language toggle — now lives in the episode panel header, keep styles */
 .watch-language-sticky {
   flex-shrink: 0; background: rgba(14,14,24,0.5);
   backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
@@ -686,32 +805,28 @@ body.is-scrolling .discover-card .discover-card__body {
   color: white; box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);
 }
 
-/*
-  FIX #3: ONLY the sidebar body (episode list) scrolls vertically.
-  This is the ONLY overflow-y: auto allowed in the sidebar.
-*/
+/* sidebar body no longer holds episodes — just spacer so bottom sticks */
 .watch-sidebar__body {
   flex: 1; overflow-y: auto; overflow-x: hidden;
   scrollbar-width: thin; scrollbar-color: rgba(124,58,237,0.3) transparent;
   padding: 0; display: flex; flex-direction: column;
-  /* must NOT be overflow:hidden — it IS the scroll container */
 }
 .watch-sidebar__body::-webkit-scrollbar { width: 4px; }
 .watch-sidebar__body::-webkit-scrollbar-thumb { background: rgba(124,58,237,0.3); border-radius: 2px; }
 
-/* Episode group selector — sticky inside the scrollable body */
+/* Episode group selector — now inside episode panel */
 .episode-group-selector {
   position: sticky; top: 0;
   background: rgba(14,14,24,0.90); backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px); z-index: 4;
-  padding: 10px; border-bottom: 1px solid var(--glass-border);
+  padding: 8px 10px; border-bottom: 1px solid var(--glass-border);
 }
 .group-chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding-bottom: 3px; }
 .group-chips::-webkit-scrollbar { display: none; }
 .group-chip {
-  padding: 6px 14px; background: var(--surface2);
+  padding: 5px 12px; background: var(--surface2);
   border: 1px solid var(--glass-border); border-radius: 20px;
-  color: var(--text2); font-size: 0.74em; font-weight: 600;
+  color: var(--text2); font-size: 0.72em; font-weight: 600;
   white-space: nowrap; cursor: pointer; transition: all 0.25s ease;
   backdrop-filter: blur(8px);
 }
@@ -727,8 +842,7 @@ body.is-scrolling .discover-card .discover-card__body {
   padding: 5px 10px; border-radius: 4px;
   border: none; background: transparent; cursor: pointer;
   transition: all 0.15s ease; text-align: left; border-left: 2px solid transparent;
-  position: relative;
-  min-height: 28px;
+  position: relative; min-height: 28px;
 }
 .ep-row:hover:not(.current) { background: rgba(255,255,255,0.04); border-left-color: rgba(124,58,237,0.3); }
 .ep-row.current { background: linear-gradient(90deg, rgba(124,58,237,0.22), transparent); border-left-color: var(--accent); }
@@ -763,17 +877,20 @@ body.is-scrolling .discover-card .discover-card__body {
   display: flex; flex-direction: column; gap: 8px;
 }
 
-/* Watch player — right side */
+/* RIGHT COLUMN — player stacked above episode panel */
+.watch-main {
+  display: flex; flex-direction: column;
+  height: 100%; overflow: hidden;
+}
+
+/* Watch player — fills available space above episode panel */
 .watch-player {
   display: flex; flex-direction: column; background: #000;
   position: relative; overflow: hidden;
-  /* FIX: player fills remaining space, no overflow beyond layout */
-  height: 100%;
+  flex-shrink: 0;
 }
 .watch-player__frame {
   position: relative; aspect-ratio: 16/9; width: 100%; background: #000; z-index: 0;
-  /* Must not overflow the player column */
-  max-height: calc(100% - 54px); /* leave room for controls */
 }
 .watch-player__frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: none; }
 .watch-player__fallback { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 2; }
@@ -786,14 +903,58 @@ body.is-scrolling .discover-card .discover-card__body {
 }
 .watch-player__controls {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 12px 20px; background: var(--glass-bg);
+  padding: 10px 20px; background: var(--glass-bg);
   backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
   border-top: 1px solid var(--glass-border); flex-shrink: 0; z-index: 2;
-  height: 54px;
+  height: 50px;
 }
 .watch-player__ep-label { font-size: 0.88em; color: var(--text1); flex: 1; text-align: center; font-weight: 600; }
 .watch-fs-btn { font-size: 1.15em; padding: 7px 11px; line-height: 1; border-radius: var(--radius-sm); transition: all 0.25s ease; }
 .watch-fs-btn:hover { background: rgba(124,58,237,0.2); }
+
+/* EPISODE PANEL — compact horizontal list below the player, like the CW panel */
+.watch-episode-panel {
+  flex: 1; display: flex; flex-direction: column;
+  background: var(--glass-panel);
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  border-top: 1px solid var(--glass-border);
+  overflow: hidden; min-height: 0;
+}
+
+/* Header row: "Episodes" label + sub/dub toggle side by side */
+.watch-episode-panel__header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px; flex-shrink: 0;
+  border-bottom: 1px solid var(--glass-border);
+  background: rgba(14,14,24,0.60);
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+}
+.watch-episode-panel__label {
+  font-size: 0.75em; font-weight: 700; color: var(--text3);
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
+/* Compact language toggle inside episode panel header */
+.watch-episode-panel__header .language-toggle {
+  width: auto; border-radius: 8px;
+}
+.watch-episode-panel__header .language-toggle button {
+  padding: 5px 14px; font-size: 0.72em;
+}
+
+/* Episode group selector inside panel — no sticky needed, panel scrolls */
+.watch-episode-panel .episode-group-selector {
+  position: static; background: rgba(14,14,24,0.50);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+}
+
+/* Episode list inside panel — horizontal scroll row */
+.watch-episode-panel .episode-list {
+  flex: 1; overflow-y: auto; overflow-x: hidden;
+  padding: 4px 0; gap: 0;
+  scrollbar-width: thin; scrollbar-color: rgba(124,58,237,0.3) transparent;
+}
+.watch-episode-panel .episode-list::-webkit-scrollbar { width: 4px; }
+.watch-episode-panel .episode-list::-webkit-scrollbar-thumb { background: rgba(124,58,237,0.3); border-radius: 2px; }
 
 /* ── WATCH ORDER ────────────────────────────────────── */
 .watch-order-section {
@@ -1002,6 +1163,13 @@ body.is-scrolling .discover-card .discover-card__body {
    Full-bleed cinematic banner with Ken Burns, glass overlays,
    dot progress, thumbnail strip, and auto-rotation.
 ═══════════════════════════════════════════════════════════════ */
+
+/* .hero-section — alias used by tests and layout */
+.hero-section {
+  min-height: 400px;
+  position: relative;
+}
+
 .hero-carousel {
   position: relative;
   width: calc(100% + 56px); /* bleed past .content-shell padding */
@@ -1065,12 +1233,12 @@ body.is-scrolling .discover-card .discover-card__body {
 /* genre pills */
 .hc-genres { display: flex; gap: 6px; flex-wrap: wrap; }
 .hc-genre-pill {
-  padding: 4px 10px; border-radius: 20px;
-  font-size: 0.7em; font-weight: 600; letter-spacing: 0.04em;
-  background: rgba(255,255,255,0.07);
-  border: 1px solid rgba(255,255,255,0.12);
+  padding: 5px 14px; border-radius: 20px;
+  font-size: 0.75em; font-weight: 700; letter-spacing: 0.04em;
+  background: rgba(124,58,237,0.25);
+  border: 1px solid rgba(124,58,237,0.45);
   backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-  color: rgba(255,255,255,0.7);
+  color: rgba(255,255,255,0.9);
 }
 
 /* title */
@@ -1109,41 +1277,42 @@ body.is-scrolling .discover-card .discover-card__body {
 }
 
 /* CTA buttons */
-.hc-actions { display: flex; gap: 10px; margin-top: 2px; }
+.hc-actions { display: flex; gap: 12px; margin-top: 4px; }
 .hc-btn-primary {
   display: inline-flex; align-items: center; gap: 8px;
-  padding: 10px 22px; border-radius: var(--radius);
+  padding: 12px 26px; border-radius: var(--radius-card);
   background: linear-gradient(135deg, var(--accent), var(--accent-bright));
-  color: #fff; font-size: 0.875em; font-weight: 700;
+  color: #fff; font-size: 0.9em; font-weight: 700;
   border: none; cursor: pointer; transition: all 0.25s ease;
   box-shadow: 0 6px 20px var(--accent-glow);
 }
 .hc-btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 28px var(--accent-glow); }
 .hc-btn-secondary {
   display: inline-flex; align-items: center; gap: 8px;
-  padding: 10px 20px; border-radius: var(--radius);
-  background: rgba(255,255,255,0.07);
-  border: 1px solid rgba(255,255,255,0.14);
+  padding: 12px 22px; border-radius: var(--radius-card);
+  background: rgba(255,255,255,0.10);
+  border: 1px solid rgba(255,255,255,0.22);
   backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-  color: rgba(255,255,255,0.85); font-size: 0.875em; font-weight: 600;
+  color: rgba(255,255,255,0.9); font-size: 0.9em; font-weight: 600;
   cursor: pointer; transition: all 0.25s ease;
 }
-.hc-btn-secondary:hover { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.26); }
+.hc-btn-secondary:hover { background: rgba(255,255,255,0.18); border-color: rgba(255,255,255,0.35); }
 
-/* Prev / Next nav arrows */
+/* Prev / Next nav arrows — circular glass */
 .hc-nav {
   position: absolute; top: 50%; transform: translateY(-50%);
-  z-index: 10; width: 42px; height: 42px; border-radius: 50%;
-  background: rgba(10,10,15,0.45);
-  border: 1px solid rgba(255,255,255,0.12);
-  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-  color: rgba(255,255,255,0.75); font-size: 1.5em; line-height: 1;
+  z-index: 10; width: 48px; height: 48px; border-radius: 50%;
+  background: rgba(10,10,15,0.55);
+  border: 1px solid rgba(255,255,255,0.18);
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  color: rgba(255,255,255,0.85); font-size: 1.6em; line-height: 1;
   display: flex; align-items: center; justify-content: center;
   cursor: pointer; transition: all 0.25s ease;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
 }
-.hc-nav:hover { background: rgba(124,58,237,0.35); color: #fff; border-color: rgba(124,58,237,0.45); }
-.hc-nav--prev { left: 16px; }
-.hc-nav--next { right: 16px; }
+.hc-nav:hover { background: rgba(124,58,237,0.45); color: #fff; border-color: rgba(124,58,237,0.55); transform: translateY(-50%) scale(1.08); }
+.hc-nav--prev { left: 20px; }
+.hc-nav--next { right: 20px; }
 
 /* Dot indicators */
 .hc-dots {
@@ -1182,6 +1351,7 @@ body.is-scrolling .discover-card .discover-card__body {
 
 /* ── Responsive carousel ────────────────────────────── */
 @media (max-width: 768px) {
+  .hero-section { min-height: 300px; }
   .hero-carousel {
     width: calc(100% + 32px);
     margin: -8px -16px 32px;
@@ -1254,13 +1424,16 @@ body.is-scrolling .discover-card .discover-card__body {
   .poster-card { width: 130px; }
   .poster-card__media { width: 130px; height: 184px; }
 
-  /* Mobile watch: stack sidebar below player */
+  /* Mobile watch: stack everything vertically */
   .watch-layout { grid-template-columns: 1fr; height: auto; overflow: visible; }
+  .watch-main { height: auto; overflow: visible; }
   .watch-sidebar {
     height: auto; overflow: visible;
     border-right: none; border-bottom: 1px solid var(--glass-border);
   }
-  .watch-sidebar__body { max-height: 280px; overflow-y: auto; }
+  .watch-sidebar__body { max-height: 0; overflow: hidden; padding: 0; }
+  .watch-episode-panel { max-height: 320px; }
+  .watch-player__frame { max-height: none; }
 
   .library-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 14px; }
   .browse-results, .discover-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 14px; }
@@ -1291,4 +1464,150 @@ body.is-scrolling .discover-card .discover-card__body {
   .library-grid, .browse-results, .discover-grid {
     grid-template-columns: repeat(auto-fill, minmax(116px, 1fr)); gap: 11px;
   }
+}
+
+/* ══ NEW DESIGN COMPONENTS ══════════════════════════════════════ */
+
+/* ── HOME HERO LAYOUT — hero + compact CW list side by side ── */
+.home-hero-layout {
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  gap: 0;
+  margin-bottom: 44px;
+  align-items: stretch;
+}
+.home-hero-layout .hero-carousel {
+  width: 100%; margin: -16px 0 0; border-radius: var(--radius-card) 0 0 var(--radius-card);
+}
+.home-hero-layout + .section--continue { display: none; }
+
+/* ── COMPACT CW LIST — left panel style from Image 2 ── */
+.cw-list {
+  display: flex; flex-direction: column; gap: 0;
+  background: var(--glass-panel);
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
+  border-left: none;
+  border-radius: 0 var(--radius-card) var(--radius-card) 0;
+  overflow: hidden;
+}
+.cw-list__header {
+  padding: 14px 16px 10px;
+  font-size: 0.78em; font-weight: 700; color: var(--text3);
+  text-transform: uppercase; letter-spacing: 0.08em;
+  border-bottom: 1px solid var(--glass-border);
+  flex-shrink: 0;
+}
+.cw-list-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px;
+  border: none; background: transparent; cursor: pointer;
+  text-align: left; width: 100%;
+  border-bottom: 1px solid var(--glass-border);
+  transition: background 0.2s ease;
+}
+.cw-list-item:last-child { border-bottom: none; }
+.cw-list-item:hover { background: var(--glass-card-hover); }
+.cw-list-item__poster {
+  width: 48px; height: 68px; border-radius: 8px;
+  overflow: hidden; flex-shrink: 0;
+  background: var(--surface2);
+  border: 1px solid var(--glass-border);
+}
+.cw-list-item__poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cw-list-item__info { flex: 1; min-width: 0; }
+.cw-list-item__title {
+  font-size: 0.8em; font-weight: 700; color: var(--text1);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  line-height: 1.3;
+}
+.cw-list-item__ep {
+  font-size: 0.7em; color: var(--text3); margin-top: 3px; font-weight: 500;
+}
+.cw-list-item__play {
+  width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0;
+  background: rgba(124,58,237,0.2);
+  border: 1px solid rgba(124,58,237,0.35);
+  color: var(--accent-bright); font-size: 0.7em;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.2s ease;
+}
+.cw-list-item:hover .cw-list-item__play {
+  background: var(--accent); color: white; border-color: transparent;
+  box-shadow: 0 2px 10px var(--accent-glow);
+}
+
+/* ── HC DESC — description text in hero ── */
+.hc-desc {
+  font-size: 0.82em; color: rgba(255,255,255,0.65); line-height: 1.5;
+  max-width: 420px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ── LIGHT THEME — frosted glass adjustments ── */
+[data-theme="light"] .topnav {
+  background: rgba(242, 242, 247, 0.80);
+  border-bottom-color: rgba(0,0,0,0.08);
+}
+[data-theme="light"] .topnav:hover { background: rgba(242, 242, 247, 0.92); }
+[data-theme="light"] .nav-search-left {
+  background: rgba(255,255,255,0.70);
+  border-color: rgba(0,0,0,0.10);
+}
+[data-theme="light"] .nav-center {
+  background: rgba(255,255,255,0.60);
+  border-color: rgba(0,0,0,0.08);
+}
+[data-theme="light"] .tab-link.is-active::after {
+  background: linear-gradient(90deg, var(--accent), var(--accent-bright));
+}
+[data-theme="light"] .poster-card,
+[data-theme="light"] .continue-card,
+[data-theme="light"] .discover-card,
+[data-theme="light"] .stat-chip {
+  background: var(--glass-card);
+  border-color: var(--glass-border);
+  box-shadow: var(--shadow-card);
+}
+[data-theme="light"] .cw-list {
+  background: rgba(255,255,255,0.55);
+  border-color: rgba(0,0,0,0.08);
+}
+[data-theme="light"] .cw-list-item:hover { background: rgba(255,255,255,0.80); }
+[data-theme="light"] .hc-genre-pill {
+  background: rgba(109,40,217,0.15);
+  border-color: rgba(109,40,217,0.30);
+  color: var(--accent);
+}
+[data-theme="light"] .hc-btn-secondary {
+  background: rgba(255,255,255,0.65);
+  border-color: rgba(0,0,0,0.15);
+  color: var(--text1);
+}
+[data-theme="light"] .poster-card__genre-tag,
+[data-theme="light"] .discover-card__genre-tag {
+  background: rgba(109,40,217,0.75);
+  border-color: rgba(109,40,217,0.5);
+}
+
+/* ── MOBILE — home hero layout stacks ── */
+@media (max-width: 900px) {
+  .home-hero-layout {
+    grid-template-columns: 1fr;
+  }
+  .home-hero-layout .hero-carousel {
+    border-radius: 0 0 var(--radius) var(--radius);
+    margin: -8px -16px 0;
+    width: calc(100% + 32px);
+  }
+  .cw-list {
+    border-left: 1px solid var(--glass-border);
+    border-top: none;
+    border-radius: 0 0 var(--radius-card) var(--radius-card);
+    flex-direction: row; overflow-x: auto;
+  }
+  .cw-list__header { display: none; }
+  .cw-list-item { border-bottom: none; border-right: 1px solid var(--glass-border); flex-shrink: 0; }
+  .home-hero-layout + .section--continue { display: block; }
 }
