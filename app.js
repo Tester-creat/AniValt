@@ -110,6 +110,7 @@ let currentEpisode = 1;
 let currentEpisodeGroupIndex = 0;
 const episodeCache = {};
 const franchiseCache = {};
+const episodeEmbedCache = {};
 let currentWatchOrderSort = "release";
 let watchViewRequestToken = 0;
 
@@ -996,30 +997,6 @@ async function loadBrowse(mode, genre = uiState.browse.genre, page = 1) {
     showToast("AniList browse request failed. Try again when you are online.", "error");
   }
 }
-function renderDiscoverCard(media, source) {
-  const existing = getEntry(media.id);
-  const title = media.title.english || media.title.romaji;
-  const meta = [media.averageScore ? `Score ${media.averageScore}` : "", media.episodes ? formatCount(media.episodes, "episode") : "Episode total unknown"].filter(Boolean).join(" • ");
-  return `<article class="discover-card">
-    <div class="discover-card__media">${media.coverImage.large ? `<img src="${escapeHtml(media.coverImage.large)}" alt="${escapeHtml(title)}">` : ""}</div>
-    <div class="discover-card__body">
-      <div class="discover-card__title">${escapeHtml(title)}</div>
-      <div class="discover-card__meta">${escapeHtml(meta)}</div>
-      <div class="discover-card__meta-row">${media.status ? `<span class="chip-chip">${escapeHtml(media.status.replaceAll("_", " "))}</span>` : ""}${existing ? `<button type="button" class="action-button" data-action="open-watch" data-id="${existing.id}">In Library</button>` : `<button type="button" class="action-button" data-action="open-status-picker" data-source="${source}" data-id="${media.id}">Add to Library</button>`}</div>
-    </div>
-  </article>`;
-}
-function renderInlineStatusPicker(source, id) {
-  const picker = uiState.inlineStatusPicker;
-  if (!picker || picker.source !== source || Number(picker.id) !== Number(id)) return "";
-  return `<div class="status-picker" data-picker-id="${source}-${id}">
-    <button type="button" class="status-picker-item" data-action="quick-add-status" data-source="${source}" data-id="${id}" data-status="plan-to-watch">Plan to Watch</button>
-    <button type="button" class="status-picker-item" data-action="quick-add-status" data-source="${source}" data-id="${id}" data-status="queued">Queued</button>
-    <button type="button" class="status-picker-item" data-action="quick-add-status" data-source="${source}" data-id="${id}" data-status="watching">Watching</button>
-    <button type="button" class="status-picker-item" data-action="quick-add-status" data-source="${source}" data-id="${id}" data-status="paused">Paused</button>
-    <button type="button" class="status-picker-item" data-action="quick-add-status" data-source="${source}" data-id="${id}" data-status="dropped">Dropped</button>
-  </div>`;
-}
 function renderQuickActionCard(anime, source) {
   const existing = getEntryByAnimeId(anime.id);
   const title = anime.title && anime.title.english ? anime.title.english : anime.title.romaji;
@@ -1230,6 +1207,29 @@ const STREAM_PROVIDERS = [
     name: "VidPlus",
     buildUrl: (entry, ep, lang) =>
       `https://player.vidplus.to/embed/anime/${entry.anilistId}/${ep}?dub=${lang === "dub"}&autoplay=true`
+  },
+  {
+    name: "Anikoto",
+    active: true,
+    idType: "anilist",
+    notes: "Requires async embed ID lookup via Anikoto API. Returns '' on cache miss; re-renders on resolution.",
+    buildUrl: (entry, ep, lang) => {
+      const key = `${entry.anilistId}-${ep}`;
+      if (episodeEmbedCache[key]) {
+        return `https://anikoto.to/stream/s-2/${episodeEmbedCache[key]}/${lang}`;
+      }
+      fetch(`https://anikoto.to/api/episode?anilistId=${entry.anilistId}&ep=${ep}`)
+        .then(r => r.json())
+        .then(data => {
+          const embedId = data && data.embedId;
+          if (embedId) {
+            episodeEmbedCache[key] = embedId;
+            queueRender();
+          }
+        })
+        .catch(() => {});
+      return "";
+    }
   },
 ];
 

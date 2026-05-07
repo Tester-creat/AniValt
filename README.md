@@ -7,11 +7,13 @@ AniVault is a privacy-first, offline-capable anime streaming and tracking platfo
 ## Features
 
 ### Streaming & Playback
-- **MegaPlay integration** — streams anime via embedded player using AniList IDs
+- **4 streaming providers** — MegaPlay, Cinetaro, VidPlus, and Anikoto, all using AniList IDs
+- **Auto-provider fallback** — if the active provider fails to load within 30 seconds, the next provider is tried automatically
+- **Manual provider switching** — cycle through providers with the provider button in the watch view
 - **Auto-next episode** — automatically advances to the next episode when playback ends
 - **Fullscreen persistence** — fullscreen mode is preserved across episode switches (Fullscreen API)
 - **Sub / Dub toggle** — switch audio language instantly on any title
-- **Fallback mode** — if MegaPlay fails to load within 7 seconds, a manual tracking screen appears with a HiAnime search link
+- **Fallback mode** — if all providers fail, a manual tracking screen appears with a HiAnime search link
 
 ### Library Management
 - **Offline-first** — your entire library is stored in `localStorage` under key `anivault_v2`
@@ -67,11 +69,12 @@ The included `netlify.toml` configures security headers automatically. Push to a
 ```
 anivault/
 ├── index.html        # Single-page shell — minimal, no framework
-├── app.js            # All application logic (~3 100 lines, vanilla JS)
+├── app.js            # All application logic (~2 900 lines, vanilla JS)
 ├── styles.css        # Full design system and responsive layout
 ├── netlify.toml      # Deployment config + security headers
-├── README.md         # This file
-└── INSTRUCTIONS.md   # UI/UX refactor spec (bug fixes & feature targets)
+├── package.json      # Dev tooling (vitest + fast-check for property tests)
+├── tests/            # Property-based and unit test suite
+└── README.md         # This file
 ```
 
 ---
@@ -101,7 +104,10 @@ User Action → handleClick / handleInput / handleChange
 
 ### External APIs
 - **AniList GraphQL** (`https://graphql.anilist.co`) — anime metadata, search, browse, episode thumbnails, franchise relations
-- **MegaPlay** (`https://megaplay.buzz/stream/ani/{id}/{episode}/{lang}`) — embedded stream player; listens for `postMessage` `ended` event for auto-next
+- **MegaPlay** (`https://megaplay.buzz/stream/ani/{id}/{episode}/{lang}`) — embedded stream player
+- **Cinetaro** (`https://api.cinetaro.buzz/embed/anime/{id}/1/{episode}?type={lang}`) — embedded stream player
+- **VidPlus** (`https://player.vidplus.to/embed/anime/{id}/{episode}?dub={bool}`) — embedded stream player
+- **Anikoto** (`https://anikoto.to/stream/s-2/{embedId}/{lang}`) — requires async embed ID lookup via `https://anikoto.to/api/episode`
 
 ---
 

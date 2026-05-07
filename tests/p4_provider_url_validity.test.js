@@ -13,11 +13,14 @@ import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
 import { arbAnimeEntry } from './generators.js';
 
-// Copy STREAM_PROVIDERS array from app.js to avoid browser dependency issues
+// ---------------------------------------------------------------------------
+// Inline copy of STREAM_PROVIDERS from app.js (avoids browser dependency).
+// episodeEmbedCache is declared here so the Anikoto buildUrl closure resolves.
+// ---------------------------------------------------------------------------
+const episodeEmbedCache = {};
+
 const STREAM_PROVIDERS = [
   {
-    // URL pattern: /stream/ani/{anilistId}/{episode}/{lang}
-    // lang values: "sub" | "dub"
     name: "MegaPlay",
     active: true,
     idType: "anilist",
@@ -26,34 +29,43 @@ const STREAM_PROVIDERS = [
     notes: "Confirmed working. Supports sub/dub via lang param.",
   },
   {
-    // URL pattern: /anime/{anilistId}/{episode}/{lang}
-    // lang values: "sub" | "dub"
-    name: "VidLink",
+    name: "Cinetaro",
     active: true,
     idType: "anilist",
     buildUrl: (entry, ep, lang) =>
-      `https://vidlink.pro/anime/${entry.anilistId}/${ep}/${lang}`,
-    notes: "AniList ID-based. Generally reliable for popular series.",
+      `https://api.cinetaro.buzz/embed/anime/${entry.anilistId}/1/${ep}?type=${lang}`,
+    notes: "Each AniList entry is one season; season is always 1 relative to that entry.",
   },
   {
-    // URL pattern: /embed/anime/{anilistId}/{episode}/{dubFlag}
-    // dubFlag: 1 = dub, 0 = sub (numeric, not string)
-    name: "VidSrc",
+    name: "VidPlus",
     active: true,
     idType: "anilist",
     buildUrl: (entry, ep, lang) =>
-      `https://vidsrc.icu/embed/anime/${entry.anilistId}/${ep}/${lang === "dub" ? 1 : 0}`,
-    notes: "AniList ID-based. Dub flag is numeric 0/1.",
+      `https://player.vidplus.to/embed/anime/${entry.anilistId}/${ep}?dub=${lang === "dub"}&autoplay=true`,
+    notes: "AniList ID-based. Dub flag is boolean query param.",
   },
   {
-    // URL pattern: /embed/anime/{anilistId}/{episode}
-    // No explicit lang param — player defaults to available audio track
-    name: "AniPlay",
+    name: "Anikoto",
     active: true,
     idType: "anilist",
-    buildUrl: (entry, ep, lang) =>
-      `https://aniplay.co/embed/anime/${entry.anilistId}/${ep}`,
-    notes: "Anime-focused. No explicit dub param; defaults to available audio.",
+    notes: "Requires async embed ID lookup via Anikoto API. Returns '' on cache miss; re-renders on resolution.",
+    buildUrl: (entry, ep, lang) => {
+      const key = `${entry.anilistId}-${ep}`;
+      if (episodeEmbedCache[key]) {
+        return `https://anikoto.to/stream/s-2/${episodeEmbedCache[key]}/${lang}`;
+      }
+      fetch(`https://anikoto.to/api/episode?anilistId=${entry.anilistId}&ep=${ep}`)
+        .then(r => r.json())
+        .then(data => {
+          const embedId = data && data.embedId;
+          if (embedId) {
+            episodeEmbedCache[key] = embedId;
+            // queueRender() not available in tests — omitted intentionally
+          }
+        })
+        .catch(() => {});
+      return "";
+    },
   },
 ];
 
@@ -72,6 +84,10 @@ describe('Property P4: Provider buildUrl returns valid HTTPS URL', () => {
           (entry, ep, lang) => {
             // Verify entry has positive anilistId (from arbAnimeEntry generator)
             expect(entry.anilistId).toBeGreaterThan(0);
+
+            // Pre-populate episodeEmbedCache so Anikoto returns a URL on cache hit
+            const cacheKey = `${entry.anilistId}-${ep}`;
+            episodeEmbedCache[cacheKey] = 'test-embed-id';
             
             // Test each active provider
             activeProviders.forEach((provider) => {
@@ -84,6 +100,9 @@ describe('Property P4: Provider buildUrl returns valid HTTPS URL', () => {
               // Verify URL starts with "https://"
               expect(url.startsWith('https://')).toBe(true);
             });
+
+            // Clean up cache entry
+            delete episodeEmbedCache[cacheKey];
           }
         ),
         { numRuns: 100 }
@@ -123,6 +142,10 @@ describe('Property P4: Provider buildUrl returns valid HTTPS URL', () => {
               sessionLog: [],
               averageScore: 85,
             };
+
+            // Pre-populate episodeEmbedCache so Anikoto returns a URL on cache hit
+            const cacheKey = `${anilistId}-${ep}`;
+            episodeEmbedCache[cacheKey] = 'test-embed-id';
             
             activeProviders.forEach((provider) => {
               const url = provider.buildUrl(entry, ep, lang);
@@ -131,6 +154,9 @@ describe('Property P4: Provider buildUrl returns valid HTTPS URL', () => {
               expect(url.length).toBeGreaterThan(0);
               expect(url.startsWith('https://')).toBe(true);
             });
+
+            // Clean up cache entry
+            delete episodeEmbedCache[cacheKey];
           }
         ),
         { numRuns: 150 }
@@ -161,6 +187,9 @@ describe('Property P4: Provider buildUrl returns valid HTTPS URL', () => {
         sessionLog: [],
         averageScore: 85,
       };
+
+      // Pre-populate episodeEmbedCache so Anikoto returns a URL on cache hit
+      episodeEmbedCache[`${testEntry.anilistId}-1`] = 'test-embed-id';
       
       STREAM_PROVIDERS.forEach((provider) => {
         if (provider.active) {
@@ -169,6 +198,8 @@ describe('Property P4: Provider buildUrl returns valid HTTPS URL', () => {
           expect(url.length).toBeGreaterThan(0);
         }
       });
+
+      delete episodeEmbedCache[`${testEntry.anilistId}-1`];
     });
 
     it('should generate valid HTTPS URLs for each provider with dub language', () => {
@@ -193,6 +224,9 @@ describe('Property P4: Provider buildUrl returns valid HTTPS URL', () => {
         sessionLog: [],
         averageScore: 85,
       };
+
+      // Pre-populate episodeEmbedCache so Anikoto returns a URL on cache hit
+      episodeEmbedCache[`${testEntry.anilistId}-1`] = 'test-embed-id';
       
       STREAM_PROVIDERS.forEach((provider) => {
         if (provider.active) {
@@ -201,6 +235,8 @@ describe('Property P4: Provider buildUrl returns valid HTTPS URL', () => {
           expect(url.length).toBeGreaterThan(0);
         }
       });
+
+      delete episodeEmbedCache[`${testEntry.anilistId}-1`];
     });
 
     it('should handle large episode numbers correctly', () => {
@@ -227,6 +263,11 @@ describe('Property P4: Provider buildUrl returns valid HTTPS URL', () => {
       };
       
       const largeEpisodes = [100, 250, 500, 1000];
+
+      // Pre-populate episodeEmbedCache for all episode numbers
+      largeEpisodes.forEach(ep => {
+        episodeEmbedCache[`${testEntry.anilistId}-${ep}`] = 'test-embed-id';
+      });
       
       STREAM_PROVIDERS.forEach((provider) => {
         if (provider.active) {
@@ -236,6 +277,11 @@ describe('Property P4: Provider buildUrl returns valid HTTPS URL', () => {
             expect(url.length).toBeGreaterThan(0);
           });
         }
+      });
+
+      // Clean up
+      largeEpisodes.forEach(ep => {
+        delete episodeEmbedCache[`${testEntry.anilistId}-${ep}`];
       });
     });
   });

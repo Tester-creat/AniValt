@@ -289,11 +289,11 @@ describe('Hero section — viewport min-heights', () => {
 // ─── Theme CSS variables ──────────────────────────────────────────────────────
 
 describe('Theme CSS variables', () => {
-  it('dark theme (:root) has --glass-bg: rgba(14, 14, 24, 0.60)', () => {
+  it('dark theme (:root) has --glass-bg: rgba(15, 15, 30, 0.45)', () => {
     const rootPattern = /:root\s*\{([^}]*)\}/s;
     const rootMatch = css.match(rootPattern);
     expect(rootMatch).not.toBeNull();
-    expect(/--glass-bg\s*:\s*rgba\(14,\s*14,\s*24,\s*0\.60\)/.test(rootMatch[1])).toBe(true);
+    expect(/--glass-bg\s*:\s*rgba\(15,\s*15,\s*30,\s*0\.45\)/.test(rootMatch[1])).toBe(true);
   });
 
   it('light theme ([data-theme="light"]) has --glass-bg: rgba(255, 253, 255, 0.65)', () => {

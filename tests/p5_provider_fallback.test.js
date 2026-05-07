@@ -1,7 +1,7 @@
 /**
  * Property test for provider fallback cycling (P5)
- * Validates: Requirements 7.1, 7.4
- * 
+ * Validates: Requirements 1.3, 1.4
+ *
  * Property 5: Provider fallback cycles through all active providers
  * For any starting provider index and any number of consecutive fallback events,
  * the provider index SHALL advance to the next active provider in order and wrap
@@ -13,7 +13,12 @@
 import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
 
-// Copy STREAM_PROVIDERS array from app.js to avoid browser dependency issues
+// ---------------------------------------------------------------------------
+// Inline copy of STREAM_PROVIDERS from app.js (avoids browser dependency).
+// episodeEmbedCache is declared here so the Anikoto buildUrl closure resolves.
+// ---------------------------------------------------------------------------
+const episodeEmbedCache = {};
+
 const STREAM_PROVIDERS = [
   {
     name: "MegaPlay",
@@ -24,28 +29,43 @@ const STREAM_PROVIDERS = [
     notes: "Confirmed working. Supports sub/dub via lang param.",
   },
   {
-    name: "VidLink",
+    name: "Cinetaro",
     active: true,
     idType: "anilist",
     buildUrl: (entry, ep, lang) =>
-      `https://vidlink.pro/anime/${entry.anilistId}/${ep}/${lang}`,
-    notes: "AniList ID-based. Generally reliable for popular series.",
+      `https://api.cinetaro.buzz/embed/anime/${entry.anilistId}/1/${ep}?type=${lang}`,
+    notes: "Each AniList entry is one season; season is always 1 relative to that entry.",
   },
   {
-    name: "VidSrc",
+    name: "VidPlus",
     active: true,
     idType: "anilist",
     buildUrl: (entry, ep, lang) =>
-      `https://vidsrc.icu/embed/anime/${entry.anilistId}/${ep}/${lang === "dub" ? 1 : 0}`,
-    notes: "AniList ID-based. Dub flag is numeric 0/1.",
+      `https://player.vidplus.to/embed/anime/${entry.anilistId}/${ep}?dub=${lang === "dub"}&autoplay=true`,
+    notes: "AniList ID-based. Dub flag is boolean query param.",
   },
   {
-    name: "AniPlay",
+    name: "Anikoto",
     active: true,
     idType: "anilist",
-    buildUrl: (entry, ep, lang) =>
-      `https://aniplay.co/embed/anime/${entry.anilistId}/${ep}`,
-    notes: "Anime-focused. No explicit dub param; defaults to available audio.",
+    notes: "Requires async embed ID lookup via Anikoto API. Returns '' on cache miss; re-renders on resolution.",
+    buildUrl: (entry, ep, lang) => {
+      const key = `${entry.anilistId}-${ep}`;
+      if (episodeEmbedCache[key]) {
+        return `https://anikoto.to/stream/s-2/${episodeEmbedCache[key]}/${lang}`;
+      }
+      fetch(`https://anikoto.to/api/episode?anilistId=${entry.anilistId}&ep=${ep}`)
+        .then(r => r.json())
+        .then(data => {
+          const embedId = data && data.embedId;
+          if (embedId) {
+            episodeEmbedCache[key] = embedId;
+            // queueRender() not available in tests — omitted intentionally
+          }
+        })
+        .catch(() => {});
+      return "";
+    },
   },
 ];
 
