@@ -1195,9 +1195,9 @@ function getGroupForEpisode(episode, groups) {
 
 /* WATCH VIEW */
 const STREAM_PROVIDERS = [
-  { name: "MegaPlay", buildUrl: (entry, ep, lang) => `https://megaplay.buzz/stream/ani/${entry.anilistId}/${ep}/${lang}` },
-  { name: "HiAnime", buildUrl: (entry, ep, lang) => `https://hianime.to/watch/${entry.anilistId.replace('anime/', '')}-${entry.anilistId}?ep=${ep}` },
-  { name: "GogoAnime", buildUrl: (entry, ep, lang) => `https://gogoanime.kiwi/arcade/${entry.anilistId}-episode-${ep}` },
+  { name: "MegaPlay",  buildUrl: (entry, ep, lang) => `https://megaplay.buzz/stream/ani/${entry.anilistId}/${ep}/${lang}` },
+  { name: "Cinetaro",  buildUrl: (entry, ep, lang) => `https://api.cinetaro.buzz/embed/anime/${entry.anilistId}/${ep}?type=${lang}` },
+  { name: "VidPlus",   buildUrl: (entry, ep, lang) => `https://player.vidplus.to/embed/anime/${entry.anilistId}/${ep}?dub=${lang === "dub"}` },
 ];
 
 function buildStreamUrl(entry, episode, language, providerIndex = 0) {
@@ -2446,45 +2446,102 @@ function setupWatchPlayer() {
   window.clearTimeout(streamFallbackTimer);
   const iframe = document.querySelector("[data-watch-iframe]");
   if (!iframe) return;
-  
+
   uiState.watch.streamLoaded = false;
-  
-  // Check if iframe loaded successfully (contentDocument check for cross-origin)
+
+  const providerName = (STREAM_PROVIDERS[uiState.watch.currentProvider] || STREAM_PROVIDERS[0]).name;
+  const isMegaPlay   = providerName === "MegaPlay";
+
+  // Cross-origin content check — only works for same-origin iframes (always
+  // throws for third-party embeds, so we fall through to the load event).
   const checkIframeLoaded = () => {
     try {
-      // Try to access iframe content - will throw if cross-origin
       const doc = iframe.contentDocument || iframe.contentWindow.document;
       if (doc && doc.body && doc.body.innerHTML.trim().length > 0) {
         uiState.watch.streamLoaded = true;
         window.clearTimeout(streamFallbackTimer);
         return true;
       }
-    } catch (e) {
-      // Cross-origin - we can't check content, so rely on load event
-    }
+    } catch (e) { /* cross-origin — expected */ }
     return false;
   };
-  
-  // Primary: listen for load event
+
+  // Mark loaded when the iframe fires its load event.
   iframe.addEventListener("load", () => {
     if (checkIframeLoaded()) return;
-    // If load fired but content is empty, still mark as loaded (provider loaded, just no content)
     uiState.watch.streamLoaded = true;
     window.clearTimeout(streamFallbackTimer);
   }, { once: true });
-  
-  // Fallback: 60-second timeout for provider failure detection
-  // This gives providers ample time to load while still catching failures
-  streamFallbackTimer = window.setTimeout(() => {
-    if (!uiState.watch.streamLoaded && currentWatchId) {
-      // Check one more time if iframe actually loaded
-      if (!checkIframeLoaded()) {
+
+  if (isMegaPlay) {
+    // ── MegaPlay: use postMessage silence as the failure signal ──────────
+    // MegaPlay fires { event:"time", time, duration, percent } within the
+    // first few seconds of a working stream. If we hear nothing for 9 s
+    // after the iframe loads, the stream has almost certainly failed.
+    let megaPlayHeardTime = false;
+    const megaPlaySilenceMs = 9000;
+
+    // We listen for the first "time" postMessage from MegaPlay.
+    const onMegaPlayTime = (e) => {
+      if (!e.origin.includes("megaplay.buzz")) return;
+      const payload = typeof e.data === "string" ? safeParse(e.data) : e.data;
+      if (!payload || typeof payload !== "object") return;
+      if (payload.event === "time" || payload.type === "time") {
+        megaPlayHeardTime = true;
+        window.clearTimeout(streamFallbackTimer);
+        uiState.watch.streamLoaded = true;
+        window.removeEventListener("message", onMegaPlayTime);
+      }
+    };
+    window.addEventListener("message", onMegaPlayTime);
+
+    // Start the silence timer only after the iframe fires its load event.
+    const startSilenceTimer = () => {
+      if (megaPlayHeardTime) return;
+      streamFallbackTimer = window.setTimeout(() => {
+        window.removeEventListener("message", onMegaPlayTime);
+        if (!megaPlayHeardTime && currentWatchId) {
+          uiState.watch.forceFallback = true;
+          renderApp();
+          showToast("MegaPlay stream not responding. Try switching providers.", "error");
+        }
+      }, megaPlaySilenceMs);
+    };
+
+    // If the iframe load event already fired (re-render case), start immediately.
+    iframe.addEventListener("load", startSilenceTimer, { once: true });
+    // Safety: if load never fires within 30 s, give up anyway.
+    const hardLimit = window.setTimeout(() => {
+      window.removeEventListener("message", onMegaPlayTime);
+      if (!megaPlayHeardTime && !uiState.watch.streamLoaded && currentWatchId) {
         uiState.watch.forceFallback = true;
         renderApp();
-        showToast(`${STREAM_PROVIDERS[uiState.watch.currentProvider]?.name || "Stream"} did not load. Try switching providers.`, "error");
+        showToast("MegaPlay did not load. Try switching providers.", "error");
       }
-    }
-  }, 60000); // 60 seconds as requested
+    }, 30000);
+    // Cancel hard limit once silence timer fires or stream is confirmed.
+    const origClear = window.clearTimeout.bind(window);
+    iframe.addEventListener("load", () => {
+      // After load + silence window, cancel the hard limit if stream confirmed.
+      window.setTimeout(() => {
+        if (uiState.watch.streamLoaded || megaPlayHeardTime) origClear(hardLimit);
+      }, megaPlaySilenceMs + 500);
+    }, { once: true });
+
+  } else {
+    // ── Cinetaro / VidPlus / other providers: 30-second hard timeout ─────
+    // These providers don't fire postMessage events we can rely on, so we
+    // use the iframe load event (already wired above) plus a hard timeout.
+    streamFallbackTimer = window.setTimeout(() => {
+      if (!uiState.watch.streamLoaded && currentWatchId) {
+        if (!checkIframeLoaded()) {
+          uiState.watch.forceFallback = true;
+          renderApp();
+          showToast(`${providerName} did not load. Try switching providers.`, "error");
+        }
+      }
+    }, 30000);
+  }
 }
 function syncScrollButtons(trackId) {
   const track = document.getElementById(trackId); if (!track) return;
@@ -2698,10 +2755,29 @@ function handleKeydown(event) {
   }
 }
 function handleMessage(event) {
-  if (!event.origin.includes("megaplay.buzz") || !currentWatchId) return;
+  if (!currentWatchId) return;
+
+  // Accept messages from any of our known provider origins.
+  const knownOrigins = ["megaplay.buzz", "cinetaro.buzz", "vidplus.to"];
+  const fromKnown = knownOrigins.some(o => event.origin.includes(o));
+  if (!fromKnown) return;
+
   const payload = typeof event.data === "string" ? safeParse(event.data) : event.data;
   if (!payload || typeof payload !== "object") return;
-  if (payload.event === "ended" || payload.type === "ended") handlePlaybackEnded();
+
+  // Playback ended — trigger auto-next / completion flow.
+  if (payload.event === "ended" || payload.type === "ended" ||
+      payload.event === "complete" || payload.type === "complete") {
+    handlePlaybackEnded();
+    return;
+  }
+
+  // MegaPlay time event — { event:"time", time, duration, percent }
+  // Mark the stream as confirmed-loaded so the silence timer is cancelled.
+  if ((payload.event === "time" || payload.type === "time") && event.origin.includes("megaplay.buzz")) {
+    uiState.watch.streamLoaded = true;
+    // Optionally: could update a progress indicator here in future.
+  }
 }
 function safeParse(value) { try { return JSON.parse(value); } catch (error) { return null; } }
 /* ══ SETTINGS MODAL HELPERS ══════════════════════════════════════ */
