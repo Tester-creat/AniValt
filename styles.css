@@ -2358,3 +2358,134 @@ body.compact-view .discover-grid { gap: 12px; }
 body.compact-view .poster-card__title { font-size: 0.72em; }
 body.compact-view .poster-card__meta { font-size: 0.64em; }
 body.compact-view .section { margin-bottom: 36px; }
+
+/* ══ IMPORT SUMMARY NOTIFICATION ════════════════════════════════ */
+
+.toast--import-summary {
+  /* Wider than a regular toast so the category rows have room */
+  max-width: 300px;
+  width: 300px;
+  padding: 0;
+  border-left: 3px solid var(--badge-completed);
+  overflow: hidden;
+  /* Override the generic slide-in so it uses the same animation */
+  animation: slideInRight 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: auto;
+}
+
+/* Fade-out when dismissed */
+.toast--import-summary.is-hiding {
+  animation: fadeOutRight 0.3s ease forwards;
+}
+@keyframes fadeOutRight {
+  to { opacity: 0; transform: translateX(110%); }
+}
+
+/* Header row: green tick + title + close button */
+.import-summary__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.import-summary__icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--badge-completed);
+  color: #fff;
+  font-size: 0.7em;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.import-summary__title {
+  flex: 1;
+  font-size: 0.78em;
+  font-weight: 700;
+  color: var(--text1);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.import-summary__close {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text3);
+  font-size: 0.65em;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+  pointer-events: auto;
+}
+.import-summary__close:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: var(--text1);
+}
+
+/* "X titles restored across Y categories" subtitle */
+.import-summary__meta {
+  padding: 6px 14px 8px;
+  font-size: 0.78em;
+  color: var(--text2);
+  line-height: 1.4;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* Category rows */
+.import-summary__rows {
+  padding: 8px 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.import-summary__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Colour dot */
+.import-summary__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.import-summary__label {
+  flex: 1;
+  font-size: 0.8em;
+  color: var(--text2);
+  font-weight: 500;
+}
+
+/* Count — coloured to match the dot */
+.import-summary__count {
+  font-size: 0.8em;
+  font-weight: 700;
+  min-width: 20px;
+  text-align: right;
+}
+
+/* Light theme adjustments */
+[data-theme="light"] .toast--import-summary {
+  background: rgba(255, 255, 255, 0.97);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+[data-theme="light"] .import-summary__head,
+[data-theme="light"] .import-summary__meta {
+  border-color: rgba(0, 0, 0, 0.07);
+}

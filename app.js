@@ -476,7 +476,6 @@ function renderTopNav() {
         </div>
       </div>
     </div>
-    <input id="importInput" style="display:none" type="file" accept=".json">
   </header>`;
 }
 function renderMobileTabs() {
@@ -1706,22 +1705,278 @@ function showToast(message, type = "info") {
   toastZone.appendChild(toast); window.setTimeout(() => toast.remove(), 3000);
 }
 
-/* UTILITIES */
-function exportData() {
-  const payload = JSON.stringify(userData, null, 2); const blob = new Blob([payload], { type: "application/json" });
-  const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); const stamp = new Date().toISOString().slice(0, 10);
-  anchor.href = url; anchor.download = `anivault-backup-${stamp}.json`; document.body.appendChild(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url);
-  showToast("Backup exported.", "success");
+/**
+ * Shows a detailed import-summary notification after a successful import.
+ * Lists every restored category with its entry count and colour-coded badge.
+ * Auto-dismisses after 8 s; also has an explicit ✕ button.
+ *
+ * @param {number}  totalImported  - total entries merged into the library
+ * @param {Set}     categories     - Set of status strings that received entries
+ */
+function showImportSummary(totalImported, categories) {
+  // Build per-category counts from the live userData so the numbers
+  // reflect exactly what ended up in the library.
+  const counts = {};
+  categories.forEach(status => { counts[status] = 0; });
+  getAnimeEntries().forEach(entry => {
+    if (counts.hasOwnProperty(entry.status)) counts[entry.status]++;
+  });
+
+  // Colour map mirrors the badge CSS variables.
+  const badgeColor = {
+    watching:       "var(--badge-watching)",
+    completed:      "var(--badge-completed)",
+    queued:         "var(--badge-queued)",
+    "plan-to-watch":"var(--badge-plan)",
+    dropped:        "var(--badge-dropped)",
+    paused:         "var(--badge-paused)",
+    untracked:      "var(--text3)"
+  };
+
+  const rows = Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([status, count]) => {
+      const label  = STATUS_LABELS[status] || status;
+      const colour = badgeColor[status] || "var(--text2)";
+      return `
+        <div class="import-summary__row">
+          <span class="import-summary__dot" style="background:${colour};"></span>
+          <span class="import-summary__label">${escapeHtml(label)}</span>
+          <span class="import-summary__count" style="color:${colour};">${count}</span>
+        </div>`;
+    }).join("");
+
+  const catCount = categories.size;
+  const panel = document.createElement("div");
+  panel.className = "toast toast--import-summary";
+  panel.setAttribute("role", "status");
+  panel.setAttribute("aria-live", "polite");
+  panel.innerHTML = `
+    <div class="import-summary__head">
+      <div class="import-summary__icon">&#10003;</div>
+      <div class="import-summary__title">Import complete</div>
+      <button type="button" class="import-summary__close" aria-label="Dismiss">&#10005;</button>
+    </div>
+    <div class="import-summary__meta">
+      ${totalImported} ${totalImported === 1 ? "title" : "titles"} restored
+      across ${catCount} ${catCount === 1 ? "category" : "categories"}
+    </div>
+    <div class="import-summary__rows">${rows}</div>
+  `;
+
+  // Dismiss on ✕ click
+  panel.querySelector(".import-summary__close").addEventListener("click", () => {
+    panel.classList.add("is-hiding");
+    setTimeout(() => panel.remove(), 300);
+  });
+
+  toastZone.appendChild(panel);
+
+  // Auto-dismiss after 8 s
+  const autoTimer = setTimeout(() => {
+    if (panel.isConnected) {
+      panel.classList.add("is-hiding");
+      setTimeout(() => panel.remove(), 300);
+    }
+  }, 8000);
+
+  // Cancel auto-dismiss if user hovers (they're reading it)
+  panel.addEventListener("mouseenter", () => clearTimeout(autoTimer));
 }
+
+/* ══ EXPORT / IMPORT ══════════════════════════════════════════════
+   Schema version 1.
+   Root structure:
+   {
+     schemaVersion : 1,
+     exportedAt    : "<ISO timestamp>",
+     totalEntries  : <number>,
+     library       : {
+       watching    : [...entries],
+       completed   : [...entries],
+       queued      : [...entries],
+       "plan-to-watch" : [...entries],
+       dropped     : [...entries],
+       paused      : [...entries],
+       untracked   : [...entries]
+     },
+     ratings       : { "<id>": <ratingValue>, ... }
+   }
+   Every field that exists on a normalizeEntry() result is included.
+   Ratings are stored both inside each entry AND in the top-level
+   "ratings" map so they are recoverable from either location.
+══════════════════════════════════════════════════════════════════ */
+
+const BACKUP_SCHEMA_VERSION = 1;
+
+/**
+ * Build the versioned backup object from live app state (userData).
+ * Returns null if the library is empty.
+ */
+function buildBackupPayload() {
+  const entries = getAnimeEntries();
+  if (!entries.length) return null;
+
+  // Group entries by status — every STATUS_OPTIONS value gets a bucket.
+  const library = {};
+  STATUS_OPTIONS.forEach(s => { library[s] = []; });
+
+  const ratings = {};
+
+  entries.forEach(entry => {
+    // Serialise every field that normalizeEntry() produces.
+    const serialised = {
+      id:              entry.id,
+      anilistId:       entry.anilistId,
+      title:           entry.title,
+      titleEnglish:    entry.titleEnglish,
+      cover:           entry.cover,
+      banner:          entry.banner,
+      episodes:        entry.episodes,
+      episodesWatched: entry.episodesWatched,
+      status:          entry.status,
+      language:        entry.language,
+      rating:          entry.rating,        // 0 means unrated
+      dateAdded:       entry.dateAdded,
+      lastWatched:     entry.lastWatched,
+      completedAt:     entry.completedAt,
+      notes:           entry.notes,
+      genres:          entry.genres,
+      year:            entry.year,
+      sessionLog:      entry.sessionLog,
+      averageScore:    entry.averageScore
+    };
+
+    const bucket = STATUS_OPTIONS.includes(entry.status) ? entry.status : "untracked";
+    library[bucket].push(serialised);
+
+    // Top-level ratings map (only store entries that have been rated).
+    if (entry.rating > 0) {
+      ratings[String(entry.id)] = entry.rating;
+    }
+  });
+
+  return {
+    schemaVersion: BACKUP_SCHEMA_VERSION,
+    exportedAt:    new Date().toISOString(),
+    totalEntries:  entries.length,
+    library,
+    ratings
+  };
+}
+
+function exportData() {
+  const payload = buildBackupPayload();
+
+  if (!payload) {
+    showToast("Your library is empty, nothing to export.", "info");
+    return;
+  }
+
+  const json   = JSON.stringify(payload, null, 2);
+  const blob   = new Blob([json], { type: "application/json" });
+  const url    = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href     = url;
+  anchor.download = "anime-library-backup.json";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+
+  showToast(`Library exported — ${payload.totalEntries} ${payload.totalEntries === 1 ? "title" : "titles"} saved.`, "success");
+}
+
+/**
+ * Validate that a parsed object looks like an AniVault backup.
+ * Accepts both the new versioned format (schemaVersion key present)
+ * and the legacy raw-userData format (numeric string keys) so old
+ * backups continue to work.
+ */
+function isValidBackup(parsed) {
+  if (!parsed || typeof parsed !== "object") return false;
+  // New versioned format
+  if (parsed.schemaVersion === BACKUP_SCHEMA_VERSION && parsed.library && typeof parsed.library === "object") return true;
+  // Legacy format: flat object whose values are anime entries
+  const values = Object.values(parsed).filter(v => v !== null && typeof v === "object");
+  if (values.some(v => Number.isFinite(Number(v.id)) && v.title)) return true;
+  return false;
+}
+
 function importData(event) {
-  const file = event.target.files && event.target.files[0]; if (!file) return;
-  const reader = new FileReader(); reader.onload = () => {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = () => {
     try {
-      const parsed = JSON.parse(String(reader.result || "{}")); const normalized = normalizeLibrary(parsed); let count = 0;
-      Object.values(normalized).forEach(entry => { if (isAnimeEntry(entry)) { userData[String(entry.id)] = entry; count += 1; } });
-      saveData(); renderApp(); showToast(`Imported ${count} ${count === 1 ? "title" : "titles"}.`, "success");
-    } catch (error) { showToast("That backup file could not be imported.", "error"); } finally { event.target.value = ""; }
-  }; reader.readAsText(file);
+      const parsed = JSON.parse(String(reader.result || "{}"));
+
+      if (!isValidBackup(parsed)) {
+        showToast("Invalid or corrupted backup file. Please use a valid export.", "error");
+        return;
+      }
+
+      let importedCount = 0;
+      const categoriesPopulated = new Set();
+
+      if (parsed.schemaVersion === BACKUP_SCHEMA_VERSION && parsed.library) {
+        // ── New versioned format ──────────────────────────────────
+        // Top-level ratings map for cross-referencing.
+        const ratingsMap = (parsed.ratings && typeof parsed.ratings === "object") ? parsed.ratings : {};
+
+        Object.entries(parsed.library).forEach(([status, entries]) => {
+          if (!Array.isArray(entries)) return;
+          entries.forEach(raw => {
+            // Recover rating from the top-level map if the entry's own
+            // rating field is missing or zero.
+            const ratingFromMap = Number(ratingsMap[String(raw.id)]) || 0;
+            const mergedRaw = Object.assign({}, raw, {
+              rating: (Number(raw.rating) > 0) ? Number(raw.rating) : ratingFromMap
+            });
+
+            const entry = normalizeEntry(mergedRaw);
+            if (!entry) return;
+
+            // Preserve status from the bucket key if the entry's own
+            // status field is absent or invalid.
+            if (!STATUS_OPTIONS.includes(entry.status) && STATUS_OPTIONS.includes(status)) {
+              entry.status = status;
+            }
+
+            userData[String(entry.id)] = entry;
+            importedCount++;
+            categoriesPopulated.add(entry.status);
+          });
+        });
+      } else {
+        // ── Legacy format: flat userData object ───────────────────
+        const normalized = normalizeLibrary(parsed);
+        Object.values(normalized).forEach(entry => {
+          if (!isAnimeEntry(entry)) return;
+          userData[String(entry.id)] = entry;
+          importedCount++;
+          categoriesPopulated.add(entry.status);
+        });
+      }
+
+      if (importedCount === 0) {
+        showToast("The backup file contained no valid anime entries.", "error");
+        return;
+      }
+
+      saveData();
+      renderApp();
+
+      showImportSummary(importedCount, categoriesPopulated);
+    } catch (error) {
+      showToast("Invalid or corrupted backup file. Please use a valid export.", "error");
+    } finally {
+      event.target.value = "";
+    }
+  };
+
+  reader.readAsText(file);
 }
 
 /* ══ STATS ENGINE ══════════════════════════════════════════════ */
@@ -2009,12 +2264,15 @@ function renderStats() {
     </div>`;
   }).join('');
 
-  // ── Year distribution sparkline ───────────────────────────────
+  // ── Year distribution — vertical rows matching Top Genres style ──
   const yearBars = s.yearDist.map(y => {
-    const h = Math.round((y.count / s.maxYearCount) * 100);
-    return `<div class="year-bar-col" title="${y.year}: ${y.count} anime">
-      <div class="year-bar-fill" style="height:${h}%"></div>
-      <div class="year-bar-label">${String(y.year).slice(2)}</div>
+    const w = Math.round((y.count / s.maxYearCount) * 100);
+    return `<div class="genre-bar-row">
+      <div class="genre-bar-name">${y.year}</div>
+      <div class="genre-bar-track">
+        <div class="genre-bar-fill" style="width:${w}%;background:var(--accent)" title="${y.count} anime"></div>
+      </div>
+      <div class="genre-bar-count">${y.count}</div>
     </div>`;
   }).join('');
 
@@ -2113,7 +2371,7 @@ function renderStats() {
       ${renderHeatmap(s.dayMap, s.maxDayCount)}
     </div>
 
-    <!-- Row 4: Streak + Critic + Year dist -->
+    <!-- Row 4: Streak + Critic -->
     <div class="stats-row stats-row--3col">
       <div class="stats-card">
         <div class="stats-card__title">Watching Streaks</div>
@@ -2125,11 +2383,6 @@ function renderStats() {
         <div class="stats-card__sub">How your taste compares to AniList</div>
         ${criticHtml}
       </div>` : ''}
-      <div class="stats-card">
-        <div class="stats-card__title">Anime by Release Year</div>
-        <div class="stats-card__sub">Which eras you watch most</div>
-        <div class="year-bars">${yearBars}</div>
-      </div>
     </div>
 
     <!-- Row 5: Top anime by episodes -->
@@ -2138,6 +2391,13 @@ function renderStats() {
       <div class="stats-card__sub">By episodes watched</div>
       <div class="top-ep-list">${topEpCards}</div>
     </div>` : ''}
+
+    <!-- Row 6: Anime by Release Year — vertical rows, no horizontal overflow -->
+    <div class="stats-card">
+      <div class="stats-card__title">Anime by Release Year</div>
+      <div class="stats-card__sub">Which eras you watch most</div>
+      <div class="genre-bars">${yearBars}</div>
+    </div>
 
   </div>`;
 }
@@ -2512,6 +2772,18 @@ function init() {
   window.addEventListener("keydown", handleKeydown); window.addEventListener("message", handleMessage);
   window.addEventListener("resize", () => document.querySelectorAll("[data-row-track]").forEach(track => syncScrollButtons(track.id)));
   if (uiState.search.query.trim().length >= 2) scheduleAniListSearch(uiState.search.query);
+
+  // Create a single persistent importInput outside #app so renderApp() never
+  // destroys it. A detached file input loses its change event when the DOM is
+  // replaced, which silently swallows the import. Attaching the listener
+  // directly (not via delegation) guarantees it always fires.
+  const importInput = document.createElement("input");
+  importInput.id = "importInput";
+  importInput.type = "file";
+  importInput.accept = ".json";
+  importInput.style.cssText = "display:none;position:fixed;top:-9999px;left:-9999px;";
+  document.body.appendChild(importInput);
+  importInput.addEventListener("change", importData);
 
   /* FIX #4: is-scrolling class hides hover panels while scrolling */
   let _scrollTimeout = 0;
