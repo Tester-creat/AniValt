@@ -15,7 +15,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=3">
 </head>
 <body>
   <!--
@@ -32,6 +32,29 @@
     Opening index.html directly as a file:// URL blocks module loading.
     The app uses no import/export statements, so type="module" was not needed.
   -->
-  <script src="app.js"></script>
+  <script src="app.js?v=3"></script>
+  <!-- Navbar scroll-reactive blur — pure visual enhancement, no app logic -->
+  <script>
+    (function () {
+      var main = document.getElementById('app');
+      function onScroll() {
+        var nav = document.querySelector('.topnav');
+        if (!nav) return;
+        var scrolled = (main ? main.querySelector('.app-main') : null);
+        var y = scrolled ? scrolled.scrollTop : window.scrollY;
+        nav.classList.toggle('is-scrolled', y > 20);
+      }
+      document.addEventListener('scroll', onScroll, { passive: true, capture: true });
+      // Also listen on app-main once it exists
+      var observer = new MutationObserver(function () {
+        var appMain = document.querySelector('.app-main');
+        if (appMain) {
+          appMain.addEventListener('scroll', onScroll, { passive: true });
+          observer.disconnect();
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    })();
+  </script>
 </body>
 </html>

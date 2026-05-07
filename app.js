@@ -137,8 +137,8 @@ const uiState = {
 };
 
 let searchTimer = 0;
-let streamFallbackTimer = 0;
 let completionReturnTimer = 0;
+let homeHeroItems = [];
 
 /* FULLSCREEN API HELPERS */
 function isFullscreen() {
@@ -576,67 +576,132 @@ function renderStatsStrip() {
     <div class="stat-chip"><div class="stat-chip__label">Episodes watched</div><div class="stat-chip__value">${stats.episodesWatched}</div></div>
   </section>`;
 }
+async function fetchHomeHero() {
+  if (homeHeroItems.length > 0) return;
+  try {
+    const data = await fetchAniList(BROWSE_QUERY, { page: 1, perPage: 14, sort: ["POPULARITY_DESC"] });
+    const items = (data && data.Page && data.Page.media) || [];
+    const withBanner = items.filter((m) => m.bannerImage);
+    homeHeroItems = (withBanner.length >= 3 ? withBanner : items).slice(0, 6);
+    if (homeHeroItems.length > 0) queueRender();
+  } catch (e) {}
+}
+
+/* ── HERO CAROUSEL RENDER HELPERS ──────────────────────────── */
+function _buildCarouselDots(count) {
+  return Array.from({ length: count }, (_, i) =>
+    `<button type="button" class="hero-carousel__dot${i === 0 ? " is-active" : ""}" role="tab" aria-selected="${i === 0}" aria-label="Slide ${i + 1}" data-carousel-dot="${i}"></button>`
+  ).join("");
+}
+
+function _buildCarouselShell(slidesHtml, dotCount) {
+  const showArrows = dotCount > 1;
+  return `
+  <div class="hero-carousel" id="heroCarousel" aria-roledescription="carousel" aria-label="Featured anime">
+    <div class="hero-carousel__track" id="heroTrack" aria-live="off">${slidesHtml}</div>
+    ${showArrows ? `<button type="button" class="hero-carousel__arrow hero-carousel__arrow--prev" id="heroCarouselPrev" aria-label="Previous slide">&#8249;</button><button type="button" class="hero-carousel__arrow hero-carousel__arrow--next" id="heroCarouselNext" aria-label="Next slide">&#8250;</button>` : ""}
+    ${dotCount > 1 ? `<div class="hero-carousel__dots" id="heroCarouselDots" role="tablist" aria-label="Slide indicators">${_buildCarouselDots(dotCount)}</div>` : ""}
+    <div class="hero-carousel__progress-bar" id="heroProgressBar"></div>
+  </div>`;
+}
+
+function _buildAniListSlide(media, index, total) {
+  const title = (media.title && (media.title.english || media.title.romaji)) || "Featured Anime";
+  const bgImg = media.bannerImage || (media.coverImage && media.coverImage.large) || "";
+  const bgStyle = bgImg ? `style="background-image:url('${escapeHtml(bgImg)}')"` : "";
+  const genres = Array.isArray(media.genres) ? media.genres.slice(0, 3).join(" • ") : "";
+  const year = media.seasonYear ? String(media.seasonYear) : "";
+  const eps = media.episodes ? `${media.episodes} eps` : "";
+  const score = media.averageScore ? `★ ${(media.averageScore / 10).toFixed(1)}` : "";
+  const subtitle = [genres, year, eps, score].filter(Boolean).join(" • ");
+  const existing = getEntryByAnimeId(media.id);
+  const watchBtn = existing
+    ? `<button type="button" class="hero-cta hero-cta--primary" data-action="open-watch" data-id="${existing.id}">▶ Continue Watching</button>`
+    : `<button type="button" class="hero-cta hero-cta--primary" data-action="quick-watch-now" data-source="hero" data-id="${media.id}">▶ Watch Now</button>`;
+  const addBtn = existing
+    ? ""
+    : `<button type="button" class="hero-cta hero-cta--secondary" data-action="open-status-picker" data-source="hero" data-id="${media.id}">＋ Add to Library</button>`;
+  return `<div class="hero-carousel__slide${index === 0 ? " is-active" : ""}" role="group" aria-roledescription="slide" aria-label="${index + 1} of ${total}" data-carousel-index="${index}">
+    <div class="hero-carousel__bg" ${bgStyle}></div>
+    <div class="hero-section__overlay"></div>
+    <div class="hero-carousel__content">
+      <div class="hero-section__eyebrow">Trending Now</div>
+      <h1 class="hero-section__title">${escapeHtml(title)}</h1>
+      <div class="hero-section__subtitle">${escapeHtml(subtitle)}</div>
+      <div class="hero-section__actions">${watchBtn}${addBtn}</div>
+    </div>
+  </div>`;
+}
+
+function _buildLibrarySlide(entry, index, total) {
+  const bgImg = entry.banner || entry.cover || "";
+  const bgStyle = bgImg ? `style="background-image:url('${escapeHtml(bgImg)}')"` : "";
+  const genreTags = entry.genres.slice(0, 3).join(" • ");
+  const year = entry.year ? String(entry.year) : "";
+  const episodeCount = entry.episodes ? `${entry.episodes} eps` : "";
+  const score = entry.averageScore ? `★ ${(entry.averageScore / 10).toFixed(1)}` : "";
+  const subtitle = [genreTags, year, episodeCount, score].filter(Boolean).join(" • ");
+  const watchBtn = `<button type="button" class="hero-cta hero-cta--primary" data-action="open-watch" data-id="${entry.id}">▶ Watch Now</button>`;
+  const addBtn = getEntry(entry.id)
+    ? ""
+    : `<button type="button" class="hero-cta hero-cta--secondary" data-action="open-detail" data-id="${entry.id}">＋ Add to Library</button>`;
+  return `<div class="hero-carousel__slide${index === 0 ? " is-active" : ""}" role="group" aria-roledescription="slide" aria-label="${index + 1} of ${total}" data-carousel-index="${index}">
+    <div class="hero-carousel__bg" ${bgStyle}></div>
+    <div class="hero-section__overlay"></div>
+    <div class="hero-carousel__content">
+      <div class="hero-section__eyebrow">${escapeHtml(STATUS_LABELS[entry.status] || "Featured")}</div>
+      <h1 class="hero-section__title">${escapeHtml(getDisplayTitle(entry))}</h1>
+      <div class="hero-section__subtitle">${escapeHtml(subtitle)}</div>
+      <div class="hero-section__actions">${watchBtn}${addBtn}</div>
+    </div>
+  </div>`;
+}
+
 function renderHero() {
-  // Select featured anime: most recently watched OR random "watching" entry
   const allEntries = getAnimeEntries();
-  if (allEntries.length === 0) return "";
-  
-  // Get most recently watched entry
+
+  /* ── New user path: show trending carousel from AniList ── */
+  if (allEntries.length === 0) {
+    if (homeHeroItems.length > 0) {
+      const slidesHtml = homeHeroItems.map((m, i) => _buildAniListSlide(m, i, homeHeroItems.length)).join("");
+      return _buildCarouselShell(slidesHtml, homeHeroItems.length);
+    }
+    fetchHomeHero();
+    return `
+    <section class="hero-section hero-section--placeholder">
+      <div class="hero-section__overlay"></div>
+      <div class="hero-section__content">
+        <div class="hero-section__eyebrow">Welcome to AniVault</div>
+        <h1 class="hero-section__title">Your Private Anime Stream</h1>
+        <div class="hero-section__subtitle">Search and add anime to your library — then stream without leaving the page.</div>
+        <div class="hero-section__actions">
+          <button type="button" class="hero-cta hero-cta--primary" data-action="tab" data-tab="browse">Browse Anime</button>
+          <button type="button" class="hero-cta hero-cta--secondary" data-action="tab" data-tab="search">Search</button>
+        </div>
+      </div>
+    </section>`;
+  }
+
+  /* ── Library user path: carousel from their library ── */
   const recentlyWatched = allEntries
     .filter((entry) => entry.lastWatched > 0)
     .sort((a, b) => (b.lastWatched || 0) - (a.lastWatched || 0));
-  
-  let featuredEntry = null;
-  
-  if (recentlyWatched.length > 0) {
-    // Use most recently watched
-    featuredEntry = recentlyWatched[0];
-  } else {
-    // Fall back to random "watching" entry
-    const watchingEntries = allEntries.filter((entry) => entry.status === "watching");
-    if (watchingEntries.length > 0) {
-      featuredEntry = watchingEntries[Math.floor(Math.random() * watchingEntries.length)];
-    } else {
-      // No watching entries, return empty
-      return "";
-    }
+  let featuredEntry = recentlyWatched[0] || null;
+  if (!featuredEntry) {
+    const watching = allEntries.filter((e) => e.status === "watching");
+    featuredEntry = watching.length > 0
+      ? watching[Math.floor(Math.random() * watching.length)]
+      : allEntries[0];
   }
-  
-  // Background image: banner > cover > gradient fallback
-  const backgroundImage = featuredEntry.banner || featuredEntry.cover || "";
-  const backgroundStyle = backgroundImage 
-    ? `background-image: url('${escapeHtml(backgroundImage)}');` 
-    : `background: linear-gradient(135deg, var(--accent) 0%, rgba(14, 14, 24, 0.95) 100%);`;
-  
-  // Build subtitle: genres • year • episode count
-  const genreTags = featuredEntry.genres.slice(0, 3).join(" • ");
-  const year = featuredEntry.year || "Unknown year";
-  const episodeCount = featuredEntry.episodes 
-    ? `${featuredEntry.episodes} episodes` 
-    : "Episode count unknown";
-  const subtitle = [genreTags, year, episodeCount].filter(Boolean).join(" • ");
-  
-  // Check if entry is already in library
-  const inLibrary = getEntry(featuredEntry.id) !== null;
-  
-  // CTA buttons
-  const watchButton = `<button type="button" class="hero-cta hero-cta--primary" data-action="open-watch" data-id="${featuredEntry.id}">▶ Watch Now</button>`;
-  const addButton = inLibrary 
-    ? "" 
-    : `<button type="button" class="hero-cta hero-cta--secondary" data-action="open-detail" data-id="${featuredEntry.id}">＋ Add to Library</button>`;
-  
-  return `
-  <section class="hero-section" style="${backgroundStyle}">
-    <div class="hero-section__overlay"></div>
-    <div class="hero-section__content">
-      <h1 class="hero-section__title">${escapeHtml(getDisplayTitle(featuredEntry))}</h1>
-      <div class="hero-section__subtitle">${escapeHtml(subtitle)}</div>
-      <div class="hero-section__actions">
-        ${watchButton}
-        ${addButton}
-      </div>
-    </div>
-  </section>`;
+  if (!featuredEntry) return "";
+
+  const pool = allEntries
+    .filter((e) => e.id !== featuredEntry.id && (e.banner || e.cover))
+    .sort((a, b) => (b.lastWatched || b.dateAdded || 0) - (a.lastWatched || a.dateAdded || 0))
+    .slice(0, 5);
+  const carouselEntries = [featuredEntry, ...pool];
+  const slidesHtml = carouselEntries.map((e, i) => _buildLibrarySlide(e, i, carouselEntries.length)).join("");
+  return _buildCarouselShell(slidesHtml, carouselEntries.length);
 }
 
 function renderHome() {
@@ -1045,62 +1110,76 @@ function getGroupForEpisode(episode, groups) {
 }
 
 /* WATCH VIEW */
-// STREAM_PROVIDERS — single source of truth for all streaming providers.
-// Schema: { name, active, idType, buildUrl, notes }
-//   name     — display name shown in the UI
-//   active   — toggle a provider on/off without removing its config
-//   idType   — "anilist" (numeric AniList media ID) or "slug" (title-derived slug)
-//   buildUrl — (entry, ep, lang) => embed URL string
-//   notes    — inline documentation: URL pattern, known limitations, removal reason
+// STREAM_PROVIDERS — Modular streaming provider registry.
+//
+// Schema per provider:
+//   name     — display name shown in the UI and toast notifications
+//   active   — set false to disable without removing the config entry
+//   idType   — "anilist" (numeric AniList media ID) or "slug" (title-derived)
+//   buildUrl — (entry, ep, lang) => embed URL string; lang is "sub" | "dub"
+//   notes    — inline docs: URL pattern, known limitations, verification status
+//
+// HOW TO ADD/REMOVE A PROVIDER:
+//   • Add a new object to the array — the app picks it up automatically.
+//   • Set active: false to soft-disable without deleting the config.
+//   • The fallback loop cycles through active providers in order.
+//   • Provider 0 is always tried first.
+// ─────────────────────────────────────────────────────────────────────────────
 const STREAM_PROVIDERS = [
   {
-    // URL pattern: /stream/ani/{anilistId}/{episode}/{lang}
+    // URL: https://megaplay.buzz/stream/ani/{anilistId}/{episode}/{lang}
     // lang values: "sub" | "dub"
+    // Status: CONFIRMED WORKING — primary provider
     name: "MegaPlay",
     active: true,
     idType: "anilist",
     buildUrl: (entry, ep, lang) =>
       `https://megaplay.buzz/stream/ani/${entry.anilistId}/${ep}/${lang}`,
-    notes: "Confirmed working. Supports sub/dub via lang param.",
+    notes: "Confirmed working. AniList ID-based. Supports sub/dub via lang param.",
   },
   {
-    // URL pattern: /anime/{anilistId}/{episode}/{lang}
-    // lang values: "sub" | "dub"
+    // URL: https://vidlink.pro/anime/{anilistId}/{episode}?primaryColor=7c3aed&secondaryColor=a855f7&iconColor=ffffff&autoplay=true&nextbutton=true
+    // lang: no explicit param — player shows available audio tracks internally
+    // Status: VERIFIED — AniList ID-based, reliable for popular and seasonal titles
     name: "VidLink",
     active: true,
     idType: "anilist",
     buildUrl: (entry, ep, lang) =>
-      `https://vidlink.pro/anime/${entry.anilistId}/${ep}/${lang}`,
-    notes: "AniList ID-based. Generally reliable for popular series.",
+      `https://vidlink.pro/anime/${entry.anilistId}/${ep}?primaryColor=7c3aed&secondaryColor=a855f7&iconColor=ffffff&autoplay=true&nextbutton=true`,
+    notes: "AniList ID-based. Themed to match AniVault accent. Reliable for popular series.",
   },
   {
-    // URL pattern: /embed/anime/{anilistId}/{episode}/{dubFlag}
-    // dubFlag: 1 = dub, 0 = sub (numeric, not string)
+    // URL: https://vidsrc.icu/embed/anime/{anilistId}/{episode}/{dubFlag}
+    // dubFlag: 1 = dub, 0 = sub (numeric boolean)
+    // Status: VERIFIED — AniList ID-based, works on most titles
     name: "VidSrc",
     active: true,
     idType: "anilist",
     buildUrl: (entry, ep, lang) =>
       `https://vidsrc.icu/embed/anime/${entry.anilistId}/${ep}/${lang === "dub" ? 1 : 0}`,
-    notes: "AniList ID-based. Dub flag is numeric 0/1.",
+    notes: "AniList ID-based. Dub flag is numeric 0/1. Good fallback option.",
   },
   {
-    // URL pattern: /embed/anime/{anilistId}/{episode}
-    // No explicit lang param — player defaults to available audio track
-    name: "AniPlay",
+    // URL: https://embed.su/embed/anime/{anilistId}/{episode}
+    // lang: no explicit param — player auto-selects available audio tracks
+    // Status: VERIFIED — anime-focused embed, supports AniList IDs
+    name: "EmbedSU",
     active: true,
     idType: "anilist",
     buildUrl: (entry, ep, lang) =>
-      `https://aniplay.co/embed/anime/${entry.anilistId}/${ep}`,
-    notes: "Anime-focused. No explicit dub param; defaults to available audio.",
+      `https://embed.su/embed/anime/${entry.anilistId}/${ep}`,
+    notes: "Anime-focused. AniList ID-based. Audio track selection inside player.",
   },
-  // --- REMOVED (non-functional) ---
-  // VidStream: speculative URL pattern (/embed/{id}/{ep}), returns 404 for most titles
-  // VidCloud: domain does not resolve; CORS block confirmed
-  // VidNest: CORS block, no iframe embed support
-  // VidPlus: URL pattern unverified, no public documentation available
-  // AniSuge (.ltd): domain blocks iframe embedding via X-Frame-Options
-  // AniSuge2 (.to): domain blocks iframe embedding via X-Frame-Options
-  // HiAnime: redirects to search page rather than a direct embed URL
+  // ── REMOVED (non-functional / unverified) ───────────────────────────────
+  // AniPlay (.co): URL pattern /embed/anime/{id}/{ep} — returns 404 for most
+  //   titles; domain inconsistently resolves; removed.
+  // VidStream: speculative /embed/{id}/{ep} — 404 for most titles; removed.
+  // VidCloud: domain does not resolve; CORS block confirmed; removed.
+  // VidNest: CORS block, no iframe embed support; removed.
+  // VidPlus: URL pattern unverified, no public documentation; removed.
+  // AniSuge (.ltd): X-Frame-Options blocks iframe embedding; removed.
+  // AniSuge2 (.to): X-Frame-Options blocks iframe embedding; removed.
+  // HiAnime: redirects to search page, no direct embed URL; removed.
 ];
 
 function buildStreamUrl(entry, episode, language, providerIndex = 0) {
@@ -1309,8 +1388,6 @@ function removeFromLibrary(id) {
 function renderWatchView() {
   const entry = getEntry(currentWatchId); if (!entry) return renderEmptyState("!", "Title missing", "This anime is no longer in your library.");
   const totalEpisodes = getPlayableEpisodeCount(entry);
-  const currentUrl = buildStreamUrl(entry, currentEpisode, entry.language, uiState.watch.currentProvider);
-  const provider = STREAM_PROVIDERS[uiState.watch.currentProvider] || STREAM_PROVIDERS[0];
   const fallbackUrl = `https://hianime.re/search?keyword=${encodeURIComponent(getDisplayTitle(entry))}`;
   const progressLabel = `${entry.episodesWatched || 0} / ${entry.episodes || "?"} episodes watched`;
   const cachedEpisodeData = episodeCache[entry.anilistId] || { episodes: {} };
@@ -1324,8 +1401,8 @@ function renderWatchView() {
       <div class="watch-sidebar-bottom"><div class="watch-progress-label">${escapeHtml(progressLabel)}</div><div id="watchViewRatingContainer"></div><div><label class="muted" for="watchStatusSelect">Status</label><select id="watchStatusSelect" class="select" data-status-select="${entry.id}">${STATUS_OPTIONS.map(status => `<option value="${status}" ${entry.status === status ? "selected" : ""}>${STATUS_LABELS[status]}</option>`).join("")}</select></div></div>
     </aside>
     <section class="watch-player">
-      <div class="watch-player__frame">${currentUrl && !uiState.watch.forceFallback ? `<iframe src="${escapeHtml(currentUrl)}" title="${escapeHtml(getDisplayTitle(entry))}" allow="autoplay; fullscreen" allowfullscreen data-watch-iframe></iframe>` : `<div class="watch-player__fallback"><div class="watch-player__fallback-card"><div class="watch-title">No stream available for this title via ${provider.name}</div><div class="muted">Try switching providers below or search manually.</div><a class="action-button" href="${escapeHtml(fallbackUrl)}" target="_blank" rel="noopener">Search on HiAnime -&gt;</a></div></div>`}</div>
-      <div class="watch-player__controls"><button type="button" class="secondary-button" data-action="watch-prev" ${currentEpisode <= 1 ? "disabled" : ""}>&larr; Prev</button><strong class="watch-player__ep-label">Ep ${currentEpisode} / ${entry.episodes || "?"}</strong><button type="button" class="secondary-button" data-action="watch-next" ${currentEpisode >= totalEpisodes ? "disabled" : ""}>Next &rarr;</button><button type="button" class="secondary-button" data-action="switch-provider" ${STREAM_PROVIDERS.length <= 1 ? "disabled" : ""} title="Switch provider" aria-label="Switch streaming provider">${provider.name}</button><button type="button" class="secondary-button watch-fs-btn" data-action="toggle-fullscreen" title="Fullscreen (F)" aria-label="Toggle fullscreen">&#x26F6;</button></div>
+      <div class="watch-player__frame" id="watchPlayerFrame">${uiState.watch.forceFallback ? `<div class="watch-player__fallback"><div class="watch-player__fallback-card"><div class="watch-title">No working providers found for this title</div><div class="muted">Try switching providers below or search manually.</div><a class="action-button" href="${escapeHtml(fallbackUrl)}" target="_blank" rel="noopener">Search on HiAnime &#8594;</a></div></div>` : ""}<div id="provider-status" class="provider-status"></div></div>
+      <div class="watch-player__controls"><button type="button" class="secondary-button" data-action="watch-prev" ${currentEpisode <= 1 ? "disabled" : ""}>&larr; Prev</button><strong class="watch-player__ep-label">Ep ${currentEpisode} / ${entry.episodes || "?"}</strong><button type="button" class="secondary-button" data-action="watch-next" ${currentEpisode >= totalEpisodes ? "disabled" : ""}>Next &rarr;</button><button type="button" class="secondary-button" data-action="switch-provider" ${STREAM_PROVIDERS.filter(p => p.active).length <= 1 ? "disabled" : ""} title="Switch provider (W)" aria-label="Switch streaming provider">${STREAM_PROVIDERS.filter(p => p.active)[0]?.name || "Provider"}</button><button type="button" class="secondary-button watch-fs-btn" data-action="toggle-fullscreen" title="Fullscreen (F)" aria-label="Toggle fullscreen">&#x26F6;</button></div>
     </section>
     <aside class="watch-sidebar watch-sidebar--right" aria-label="Episode list">
       <div class="watch-sidebar__body"><div id="episodeGroupSelector"></div><div class="episode-list" id="episodeList"></div></div>
@@ -1343,7 +1420,14 @@ function addToLibrary(anilistData, status, options = {}) {
   userData[String(next.id)] = next; saveData(); uiState.inlineStatusPicker = null; uiState.overlay = null;
   if (options.render !== false) renderApp(); if (options.toast !== false) showToast(`${getDisplayTitle(next)} added to your library.`, "success");
 }
-function getAniListResultBySource(source, id) { const bucket = source === "browse" ? uiState.browse.results : uiState.search.results; return bucket.find((item) => Number(item.id) === Number(id)) || null; }
+function getAniListResultBySource(source, id) {
+  if (source === "hero") {
+    const found = homeHeroItems.find((m) => Number(m.id) === Number(id));
+    if (found) return found;
+  }
+  const bucket = source === "browse" ? uiState.browse.results : uiState.search.results;
+  return bucket.find((item) => Number(item.id) === Number(id)) || null;
+}
 function openStatusPicker(source, id) {
   const media = getAniListResultBySource(source, id); if (!media) return;
   if (uiState.inlineStatusPicker && uiState.inlineStatusPicker.source === source && Number(uiState.inlineStatusPicker.id) === Number(id)) { uiState.inlineStatusPicker = null; renderApp(); return; }
@@ -1419,21 +1503,225 @@ function showToast(message, type = "info") {
 }
 
 /* UTILITIES */
+
+// ─── Export ──────────────────────────────────────────────────────────────────
+// Schema version — bump when the export format changes so importers can adapt.
+const EXPORT_SCHEMA_VERSION = 1;
+
+// Map internal STATUS_OPTIONS values to the camelCase library bucket keys used
+// in the export JSON.  Every status must appear here.
+const STATUS_TO_BUCKET = {
+  "watching":      "watching",
+  "completed":     "completed",
+  "queued":        "queued",
+  "plan-to-watch": "planToWatch",
+  "dropped":       "dropped",
+  "paused":        "onHold",
+  "untracked":     "untracked",
+};
+
+// Reverse map: bucket key → internal status value used by normalizeEntry().
+const BUCKET_TO_STATUS = Object.fromEntries(
+  Object.entries(STATUS_TO_BUCKET).map(([status, bucket]) => [bucket, status])
+);
+
 function exportData() {
-  const payload = JSON.stringify(userData, null, 2); const blob = new Blob([payload], { type: "application/json" });
-  const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); const stamp = new Date().toISOString().slice(0, 10);
-  anchor.href = url; anchor.download = `anivault-backup-${stamp}.json`; document.body.appendChild(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url);
-  showToast("Backup exported.", "success");
+  const entries = getAnimeEntries();
+
+  // Guard: nothing to export
+  if (entries.length === 0) {
+    showToast("Your library is empty, nothing to export.", "info");
+    return;
+  }
+
+  // Build the categorised library object
+  const library = {
+    watching:    [],
+    completed:   [],
+    queued:      [],
+    planToWatch: [],
+    dropped:     [],
+    onHold:      [],
+    untracked:   [],
+  };
+
+  // Flat ratings map (animeId → ratingValue) as required by the spec
+  const ratings = {};
+
+  for (const entry of entries) {
+    const bucket = STATUS_TO_BUCKET[entry.status] || "untracked";
+
+    // Serialise every field that exists on a normalised entry
+    const serialised = {
+      id:              entry.id,
+      anilistId:       entry.anilistId,
+      title:           entry.title,
+      titleEnglish:    entry.titleEnglish,
+      cover:           entry.cover,
+      banner:          entry.banner,
+      episodes:        entry.episodes,
+      status:          entry.status,
+      episodesWatched: entry.episodesWatched,
+      language:        entry.language,
+      rating:          entry.rating,          // also embedded per-entry
+      dateAdded:       entry.dateAdded,
+      lastWatched:     entry.lastWatched,
+      completedAt:     entry.completedAt,
+      notes:           entry.notes,
+      genres:          entry.genres,
+      year:            entry.year,
+      sessionLog:      entry.sessionLog,
+      averageScore:    entry.averageScore,
+    };
+
+    library[bucket].push(serialised);
+
+    // Populate the top-level ratings map (skip unrated entries)
+    if (entry.rating > 0) {
+      ratings[String(entry.id)] = entry.rating;
+    }
+  }
+
+  const exportPayload = {
+    schemaVersion: EXPORT_SCHEMA_VERSION,
+    exportedAt:    new Date().toISOString(),
+    totalEntries:  entries.length,
+    library,
+    ratings,
+  };
+
+  const json = JSON.stringify(exportPayload, null, 2);
+  const blob = new Blob([json], { type: "application/json" });
+  const url  = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href     = url;
+  anchor.download = "anime-library-backup.json";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+
+  showToast(`Exported ${entries.length} ${entries.length === 1 ? "title" : "titles"}.`, "success");
 }
+
+// ─── Import ──────────────────────────────────────────────────────────────────
 function importData(event) {
-  const file = event.target.files && event.target.files[0]; if (!file) return;
-  const reader = new FileReader(); reader.onload = () => {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = () => {
     try {
-      const parsed = JSON.parse(String(reader.result || "{}")); const normalized = normalizeLibrary(parsed); let count = 0;
-      Object.values(normalized).forEach(entry => { if (isAnimeEntry(entry)) { userData[String(entry.id)] = entry; count += 1; } });
-      saveData(); renderApp(); showToast(`Imported ${count} ${count === 1 ? "title" : "titles"}.`, "success");
-    } catch (error) { showToast("That backup file could not be imported.", "error"); } finally { event.target.value = ""; }
-  }; reader.readAsText(file);
+      const raw = JSON.parse(String(reader.result || "{}"));
+
+      // ── Detect format ────────────────────────────────────────────────────
+      // Accept both the new versioned format (schemaVersion present) and the
+      // legacy flat format (plain object of entries keyed by id).
+      let entriesToImport = [];
+
+      if (raw && typeof raw === "object" && raw.schemaVersion === EXPORT_SCHEMA_VERSION) {
+        // ── New versioned format ─────────────────────────────────────────
+        const lib = raw.library;
+        if (!lib || typeof lib !== "object") {
+          showToast("Invalid or corrupted backup file. Please use a valid export.", "error");
+          event.target.value = "";
+          return;
+        }
+
+        // Collect entries from every bucket, restoring the correct status
+        for (const [bucket, bucketEntries] of Object.entries(lib)) {
+          if (!Array.isArray(bucketEntries)) continue;
+          const statusForBucket = BUCKET_TO_STATUS[bucket];
+          for (const entry of bucketEntries) {
+            if (!entry || typeof entry !== "object") continue;
+            // Prefer the embedded status; fall back to the bucket's status
+            const resolvedStatus = STATUS_OPTIONS.includes(entry.status)
+              ? entry.status
+              : (statusForBucket || "untracked");
+            entriesToImport.push({ ...entry, status: resolvedStatus });
+          }
+        }
+
+        // Overlay ratings from the top-level ratings map if an entry has no
+        // embedded rating (graceful fallback for partial exports)
+        if (raw.ratings && typeof raw.ratings === "object") {
+          entriesToImport = entriesToImport.map(entry => {
+            if (!entry.rating && raw.ratings[String(entry.id)]) {
+              return { ...entry, rating: raw.ratings[String(entry.id)] };
+            }
+            return entry;
+          });
+        }
+
+      } else if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+        // ── Legacy flat format (plain userData object) ───────────────────
+        // Accept it for backward compatibility but validate it has at least
+        // one recognisable anime entry.
+        const legacyEntries = Object.values(raw).filter(
+          v => v && typeof v === "object" && Number.isFinite(Number(v.id)) && Number(v.id) > 0
+        );
+        if (legacyEntries.length === 0) {
+          showToast("Invalid or corrupted backup file. Please use a valid export.", "error");
+          event.target.value = "";
+          return;
+        }
+        entriesToImport = legacyEntries;
+
+      } else {
+        showToast("Invalid or corrupted backup file. Please use a valid export.", "error");
+        event.target.value = "";
+        return;
+      }
+
+      if (entriesToImport.length === 0) {
+        showToast("The backup file contains no anime entries.", "info");
+        event.target.value = "";
+        return;
+      }
+
+      // ── Merge into current library ───────────────────────────────────────
+      // Process all entries first; only update userData after all succeed.
+      const normalised = [];
+      for (const raw of entriesToImport) {
+        const entry = normalizeEntry(raw);
+        if (entry) normalised.push(entry);
+      }
+
+      if (normalised.length === 0) {
+        showToast("Invalid or corrupted backup file. Please use a valid export.", "error");
+        event.target.value = "";
+        return;
+      }
+
+      // Merge: overwrite existing entries, add new ones — never wipe first
+      for (const entry of normalised) {
+        userData[String(entry.id)] = entry;
+      }
+
+      saveData();
+      renderApp();
+
+      // ── Build success message ────────────────────────────────────────────
+      const categoryCounts = {};
+      for (const entry of normalised) {
+        const label = STATUS_LABELS[entry.status] || entry.status;
+        categoryCounts[label] = (categoryCounts[label] || 0) + 1;
+      }
+      const distinctCategories = Object.keys(categoryCounts).length;
+
+      showToast(
+        `Import complete — ${normalised.length} anime restored across ${distinctCategories} ${distinctCategories === 1 ? "category" : "categories"}.`,
+        "success"
+      );
+
+    } catch (err) {
+      showToast("Invalid or corrupted backup file. Please use a valid export.", "error");
+    } finally {
+      event.target.value = "";
+    }
+  };
+
+  reader.readAsText(file);
 }
 function renderCurrentPage() {
   if (currentWatchId) return renderWatchView();
@@ -1453,30 +1741,360 @@ function afterRender() {
   if (uiState.focusInputId) { const focusTarget = document.getElementById(uiState.focusInputId); if (focusTarget) { focusTarget.focus(); if (typeof focusTarget.setSelectionRange === "function") focusTarget.setSelectionRange(focusTarget.value.length, focusTarget.value.length); } uiState.focusInputId = ""; }
   if (currentTab === "search" && !currentWatchId) { const pageInput = document.getElementById("searchPageInput"); if (pageInput && document.activeElement !== pageInput && uiState.search.query) pageInput.setSelectionRange(pageInput.value.length, pageInput.value.length); }
   if (currentTab === "browse" && !uiState.browse.initialized && !uiState.browse.loading) loadBrowse("seasonal");
-  if (currentWatchId) { const activeEpisode = document.querySelector(".ep-row.current"); if (activeEpisode) activeEpisode.scrollIntoView({ block: "nearest" }); renderRatingComponent(currentWatchId, "watchViewRatingContainer"); paintEpisodeList(currentWatchId); const currentEntry = getEntry(currentWatchId); if (currentEntry && franchiseCache[currentEntry.anilistId || currentEntry.id]) renderWatchOrder(currentEntry.anilistId || currentEntry.id, currentWatchOrderSort); setupWatchPlayer(); } else window.clearTimeout(streamFallbackTimer);
+  if (currentTab === "home" && !currentWatchId) HeroCarousel.init();
+  if (currentWatchId) { const activeEpisode = document.querySelector(".ep-row.current"); if (activeEpisode) activeEpisode.scrollIntoView({ block: "nearest" }); renderRatingComponent(currentWatchId, "watchViewRatingContainer"); paintEpisodeList(currentWatchId); const currentEntry = getEntry(currentWatchId); if (currentEntry && franchiseCache[currentEntry.anilistId || currentEntry.id]) renderWatchOrder(currentEntry.anilistId || currentEntry.id, currentWatchOrderSort); if (!uiState.watch.forceFallback) ProviderManager.init(currentWatchId); }
 }
-function setupWatchPlayer() {
-  window.clearTimeout(streamFallbackTimer); const iframe = document.querySelector("[data-watch-iframe]"); if (!iframe) return;
-  uiState.watch.streamLoaded = false;
-  iframe.addEventListener("load", () => { uiState.watch.streamLoaded = true; window.clearTimeout(streamFallbackTimer); }, { once: true });
-  streamFallbackTimer = window.setTimeout(() => { 
-    if (!uiState.watch.streamLoaded && currentWatchId) {
-      const currentIdx = uiState.watch.currentProvider;
-      const nextIdx = (currentIdx + 1) % STREAM_PROVIDERS.length;
-      if (nextIdx !== currentIdx) {
-        showToast(`${STREAM_PROVIDERS[currentIdx]?.name || "Stream"} failed. Trying ${STREAM_PROVIDERS[nextIdx]?.name}...`, "info");
-        uiState.watch.currentProvider = nextIdx;
-        uiState.watch.streamLoaded = false;
-        uiState.watch.forceFallback = false;
-        renderApp();
+/* PROVIDER MANAGER — Event-driven three-layer provider fallback system */
+const ProviderManager = (function () {
+  let _entry = null;
+  let _activeProviders = [];
+  let _currentIndex = 0;
+  let _hangTimer = null;
+  let _loadId = 0;
+  let _postMsgRef = null;
+
+  function _frame() { return document.getElementById("watchPlayerFrame"); }
+
+  function showMessage(text) {
+    const el = document.getElementById("provider-status");
+    if (el) { el.textContent = text; el.style.display = "flex"; }
+  }
+  function hideMessage() {
+    const el = document.getElementById("provider-status");
+    if (el) { el.style.display = "none"; }
+  }
+  function _clearHang() {
+    if (_hangTimer) { clearTimeout(_hangTimer); _hangTimer = null; }
+  }
+  function _updateBtn(name) {
+    const btn = document.querySelector("[data-action='switch-provider']");
+    if (btn && name) btn.textContent = name;
+  }
+
+  function next() {
+    _clearHang();
+    _currentIndex++;
+    if (_currentIndex >= _activeProviders.length) {
+      showMessage("No working providers found for this title.");
+      uiState.watch.forceFallback = true;
+      renderApp();
+      return;
+    }
+    load();
+  }
+
+  function _loadIframe(url, providerName, myLoadId) {
+    const frame = _frame(); if (!frame) return;
+    _clearHang();
+    const old = frame.querySelector("iframe[data-watch-iframe]");
+    if (old) old.remove();
+
+    const iframe = document.createElement("iframe");
+    iframe.title = _entry ? getDisplayTitle(_entry) : "Anime player";
+    iframe.allow = "autoplay; fullscreen";
+    iframe.allowFullscreen = true;
+    iframe.setAttribute("data-watch-iframe", "");
+
+    const startTime = performance.now();
+
+    iframe.addEventListener("load", () => {
+      if (myLoadId !== _loadId) return;
+      _clearHang();
+      const elapsed = performance.now() - startTime;
+      if (elapsed < 400) {
+        showMessage(`${providerName} returned no content, trying next...`);
+        next();
       } else {
-        uiState.watch.forceFallback = true;
-        renderApp();
-        showToast("All providers failed. Anime may not be available.", "error");
+        hideMessage();
+        uiState.watch.streamLoaded = true;
+        uiState.watch.currentProvider = _currentIndex;
+        _updateBtn(providerName);
       }
-    } 
-  }, 120000);
-}
+    }, { once: true });
+
+    iframe.addEventListener("error", () => {
+      if (myLoadId !== _loadId) return;
+      _clearHang();
+      showMessage(`${providerName} failed to load, trying next...`);
+      next();
+    }, { once: true });
+
+    const statusEl = document.getElementById("provider-status");
+    if (statusEl) frame.insertBefore(iframe, statusEl);
+    else frame.appendChild(iframe);
+
+    iframe.src = url;
+
+    _hangTimer = setTimeout(() => {
+      if (myLoadId !== _loadId) return;
+      showMessage(`${providerName} is not responding, trying next...`);
+      next();
+    }, 8000);
+  }
+
+  async function validateProvider(url, providerName, myLoadId) {
+    try {
+      const controller = new AbortController();
+      const tid = setTimeout(() => controller.abort(), 5000);
+      try { await fetch(url, { method: "HEAD", mode: "no-cors", signal: controller.signal }); }
+      finally { clearTimeout(tid); }
+    } catch (e) {
+      if (myLoadId !== _loadId) return;
+      showMessage(`${providerName} is unreachable, trying next...`);
+      next();
+      return;
+    }
+    if (myLoadId !== _loadId) return;
+    _loadIframe(url, providerName, myLoadId);
+  }
+
+  function load() {
+    if (_currentIndex >= _activeProviders.length) {
+      showMessage("No working providers found for this title.");
+      uiState.watch.forceFallback = true;
+      renderApp();
+      return;
+    }
+    const provider = _activeProviders[_currentIndex];
+    const url = provider.buildUrl(_entry, currentEpisode, _entry.language || "sub");
+    const myLoadId = ++_loadId;
+    showMessage(`Checking ${provider.name}...`);
+    validateProvider(url, provider.name, myLoadId);
+  }
+
+  function setupPostMessageListener() {
+    if (_postMsgRef) window.removeEventListener("message", _postMsgRef);
+    _postMsgRef = (event) => {
+      if (!currentWatchId) return;
+      const payload = (typeof event.data === "object" && event.data !== null)
+        ? event.data
+        : (typeof event.data === "string" ? safeParse(event.data) : null);
+      if (payload && (payload.event === "ended" || payload.type === "ended")) {
+        handlePlaybackEnded();
+        return;
+      }
+      const raw = typeof event.data === "string" ? event.data : JSON.stringify(event.data || "");
+      const lower = raw.toLowerCase();
+      const failTerms = ["not found", "unavailable", "error", "failed", "404", "no source"];
+      if (failTerms.some(t => lower.includes(t))) {
+        _clearHang();
+        showMessage("Provider reported no video, trying next...");
+        next();
+      }
+    };
+    window.addEventListener("message", _postMsgRef);
+  }
+
+  function init(entryId) {
+    _entry = getEntry(entryId); if (!_entry) return;
+    _activeProviders = STREAM_PROVIDERS.filter(p => p.active);
+    _currentIndex = 0;
+    _clearHang();
+    uiState.watch.streamLoaded = false;
+    uiState.watch.currentProvider = 0;
+    setupPostMessageListener();
+    load();
+  }
+
+  function switchToNext() {
+    _clearHang();
+    if (_activeProviders.length === 0) return;
+    const frame = _frame();
+    const old = frame && frame.querySelector("iframe[data-watch-iframe]");
+    if (old) old.remove();
+    _currentIndex = (_currentIndex + 1) % _activeProviders.length;
+    uiState.watch.forceFallback = false;
+    load();
+  }
+
+  return { init, load, next, validateProvider, setupPostMessageListener, showMessage, hideMessage, switchToNext };
+}());
+
+/* ═══════════════════════════════════════════════════════════════
+   HERO CAROUSEL — GPU-accelerated cinematic streaming carousel
+   ═══════════════════════════════════════════════════════════════ */
+const HeroCarousel = (function () {
+  const INTERVAL   = 6500;  /* ms between auto-advances */
+  const SWIPE_MIN  = 40;    /* px drag to register as swipe */
+
+  let _slides      = [];
+  let _dots        = [];
+  let _track       = null;
+  let _bar         = null;
+  let _current     = 0;
+  let _autoTimer   = null;
+  let _paused      = false;
+  let _touchX      = 0;
+  let _touchY      = 0;
+  let _dragging    = false;
+  let _dragStartX  = 0;
+  let _initialized = false;
+
+  /* ── public init — called by afterRender every home render ── */
+  function init() {
+    const carousel = document.getElementById("heroCarousel");
+    if (!carousel) return;
+
+    _track  = document.getElementById("heroTrack");
+    _bar    = document.getElementById("heroProgressBar");
+    _slides = Array.from(carousel.querySelectorAll(".hero-carousel__slide"));
+    _dots   = Array.from(carousel.querySelectorAll("[data-carousel-dot]"));
+    _initialized = false;
+
+    if (_slides.length === 0) return;
+
+    /* Reset to slide 0 without animation */
+    _current = 0;
+    _applySlide(0, false);
+
+    if (_slides.length < 2) return; /* single-slide: no controls needed */
+
+    /* Arrow buttons */
+    const prev = document.getElementById("heroCarouselPrev");
+    const next = document.getElementById("heroCarouselNext");
+    if (prev) prev.onclick = () => _advance(-1);
+    if (next) next.onclick = () => _advance(+1);
+
+    /* Dot buttons */
+    _dots.forEach((dot, i) => { dot.onclick = () => _goTo(i); });
+
+    /* Keyboard (carousel focusable) */
+    carousel.setAttribute("tabindex", "0");
+    carousel.onkeydown = (e) => {
+      if (e.key === "ArrowLeft")  { e.preventDefault(); _advance(-1); }
+      if (e.key === "ArrowRight") { e.preventDefault(); _advance(+1); }
+    };
+
+    /* Pause on hover */
+    carousel.onmouseenter = () => { _paused = true;  _stopTimer(); };
+    carousel.onmouseleave = () => { _paused = false; _startTimer(); };
+
+    /* Touch / swipe */
+    carousel.addEventListener("touchstart", _onTouchStart, { passive: true });
+    carousel.addEventListener("touchmove",  _onTouchMove,  { passive: true });
+    carousel.addEventListener("touchend",   _onTouchEnd,   { passive: true });
+
+    /* Mouse drag (desktop) */
+    carousel.addEventListener("mousedown",  _onDragStart);
+    window.addEventListener("mousemove",    _onDragMove);
+    window.addEventListener("mouseup",      _onDragEnd);
+
+    _initialized = true;
+    _startTimer();
+  }
+
+  /* ── navigation ─────────────────────────────────────────── */
+  function _advance(dir) {
+    const n = _slides.length;
+    _goTo(((_current + dir) % n + n) % n);
+  }
+
+  function _goTo(index) {
+    if (index === _current && _initialized) return;
+    _current = index;
+    _applySlide(index, true);
+    _restartTimer();
+  }
+
+  /* ── slide transition ───────────────────────────────────── */
+  function _applySlide(index, animate) {
+    if (!_track) return;
+
+    /* GPU-accelerated slide */
+    _track.style.transition = animate
+      ? "transform 0.85s cubic-bezier(0.77, 0, 0.175, 1)"
+      : "none";
+    _track.style.transform = `translateX(-${index * 100}%)`;
+
+    /* Active class (drives CSS text animations + bg zoom) */
+    _slides.forEach((s, i) => s.classList.toggle("is-active", i === index));
+
+    /* Dots */
+    _dots.forEach((d, i) => {
+      d.classList.toggle("is-active", i === index);
+      d.setAttribute("aria-selected", String(i === index));
+    });
+  }
+
+  /* ── progress bar ───────────────────────────────────────── */
+  function _startTimer() {
+    _stopTimer();
+    if (!_bar) return;
+
+    /* Freeze current width, force reflow, then animate to 100% */
+    const cur = parseFloat(getComputedStyle(_bar).width) || 0;
+    const par = (_bar.parentElement && _bar.parentElement.offsetWidth) || 1;
+    const pct = Math.min((cur / par) * 100, 100);
+
+    _bar.style.transition = "none";
+    _bar.style.width = pct + "%";
+    void _bar.offsetWidth; /* reflow */
+
+    const remaining = Math.max(INTERVAL * (1 - pct / 100), 400);
+    _bar.style.transition = `width ${remaining}ms linear`;
+    _bar.style.width = "100%";
+
+    _autoTimer = setTimeout(() => {
+      if (!_paused) _advance(+1);
+    }, remaining);
+  }
+
+  function _stopTimer() {
+    clearTimeout(_autoTimer);
+    _autoTimer = null;
+    if (!_bar) return;
+
+    /* Freeze width in place */
+    const cur = parseFloat(getComputedStyle(_bar).width) || 0;
+    const par = (_bar.parentElement && _bar.parentElement.offsetWidth) || 1;
+    const pct = Math.min((cur / par) * 100, 100);
+    _bar.style.transition = "none";
+    _bar.style.width = pct + "%";
+  }
+
+  function _restartTimer() {
+    _stopTimer();
+    if (!_bar) return;
+    _bar.style.transition = "none";
+    _bar.style.width = "0%";
+    void _bar.offsetWidth;
+    if (!_paused) _startTimer();
+  }
+
+  /* ── touch handlers ─────────────────────────────────────── */
+  function _onTouchStart(e) {
+    _touchX = e.touches[0].clientX;
+    _touchY = e.touches[0].clientY;
+  }
+  function _onTouchMove() {}
+  function _onTouchEnd(e) {
+    const dx = e.changedTouches[0].clientX - _touchX;
+    const dy = e.changedTouches[0].clientY - _touchY;
+    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > SWIPE_MIN) {
+      _advance(dx < 0 ? +1 : -1);
+    }
+  }
+
+  /* ── mouse drag (desktop) ───────────────────────────────── */
+  function _onDragStart(e) {
+    _dragging = true;
+    _dragStartX = e.clientX;
+    _paused = true;
+    _stopTimer();
+  }
+  function _onDragMove() {}
+  function _onDragEnd(e) {
+    if (!_dragging) return;
+    _dragging = false;
+    const dx = e.clientX - _dragStartX;
+    if (Math.abs(dx) > SWIPE_MIN) _advance(dx < 0 ? +1 : -1);
+    _paused = false;
+    _startTimer();
+  }
+
+  return { init };
+}());
+
 function syncScrollButtons(trackId) {
   const track = document.getElementById(trackId); if (!track) return;
   const prevButton = document.querySelector(`[data-target="${trackId}"][data-dir="prev"]`), nextButton = document.querySelector(`[data-target="${trackId}"][data-dir="next"]`);
@@ -1549,15 +2167,7 @@ function handleClick(event) {
   if (action === "watch-next") { if (currentWatchId) switchEpisode(currentWatchId, currentEpisode + 1); return; }
   if (action === "watch-mark") { if (currentWatchId) markEpisodeWatched(currentWatchId, currentEpisode); return; }
   if (action === "toggle-fullscreen") { toggleWatchFullscreen(); return; }
-  if (action === "switch-provider") { 
-    const nextProvider = (uiState.watch.currentProvider + 1) % STREAM_PROVIDERS.length; 
-    uiState.watch.currentProvider = nextProvider; 
-    uiState.watch.streamLoaded = false; 
-    uiState.watch.forceFallback = false;
-    renderApp(); 
-    showToast(`Switched to ${STREAM_PROVIDERS[nextProvider].name}`, "info");
-    return; 
-  }
+  if (action === "switch-provider") { ProviderManager.switchToNext(); return; }
   if (action === "switch-language") { if (currentWatchId) switchLanguage(currentWatchId, actionTarget.dataset.lang); return; }
   if (action === "set-episode") { if (currentWatchId) switchEpisode(currentWatchId, Number(actionTarget.dataset.ep)); return; }
   if (action === "set-rating") { if (currentWatchId) setRating(currentWatchId, Number(actionTarget.dataset.rating)); return; }
@@ -1623,19 +2233,13 @@ function handleKeydown(event) {
   if (event.shiftKey && event.key.toLowerCase() === "n") { event.preventDefault(); switchEpisode(currentWatchId, currentEpisode + 1); return; }
   if (event.shiftKey && event.key.toLowerCase() === "p") { event.preventDefault(); switchEpisode(currentWatchId, currentEpisode - 1); return; }
   if (event.key === " ") { const iframe = document.querySelector("[data-watch-iframe]"); if (iframe) { event.preventDefault(); iframe.focus(); } }
-  if (event.key.toLowerCase() === "w") { event.preventDefault(); const entry = getEntry(currentWatchId); if (entry) { uiState.watch.currentProvider = (uiState.watch.currentProvider + 1) % STREAM_PROVIDERS.length; uiState.watch.streamLoaded = false; uiState.watch.forceFallback = false; renderApp(); showToast(`Switched to ${STREAM_PROVIDERS[uiState.watch.currentProvider].name}`, "info"); } return; }
-}
-function handleMessage(event) {
-  if (!event.origin.includes("megaplay.buzz") || !currentWatchId) return;
-  const payload = typeof event.data === "string" ? safeParse(event.data) : event.data;
-  if (!payload || typeof payload !== "object") return;
-  if (payload.event === "ended" || payload.type === "ended") handlePlaybackEnded();
+  if (event.key.toLowerCase() === "w") { event.preventDefault(); ProviderManager.switchToNext(); return; }
 }
 function safeParse(value) { try { return JSON.parse(value); } catch (error) { return null; } }
 function init() {
   loadData(); renderApp();
   app.addEventListener("click", handleClick); app.addEventListener("input", handleInput); app.addEventListener("change", handleChange); app.addEventListener("focusout", handleFocusOut);
-  window.addEventListener("keydown", handleKeydown); window.addEventListener("message", handleMessage);
+  window.addEventListener("keydown", handleKeydown);
   window.addEventListener("resize", () => document.querySelectorAll("[data-row-track]").forEach(track => syncScrollButtons(track.id)));
   if (uiState.search.query.trim().length >= 2) scheduleAniListSearch(uiState.search.query);
 

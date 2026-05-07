@@ -1,43 +1,107 @@
-Project Context
-This is a school vibe coding project where I was asked to build a streaming platform clone of my choice. I chose to build an anime streaming platform, inspired by the feel of Netflix and ShuttleTV (https://shuttletv.su/). This is an educational project — not for commercial use or distribution.
+Perform a complete, ground-up UI/UX redesign of this anime streaming platform.
+Discard the current visual design entirely — do not preserve any part of the 
+existing layout, color choices, component styling, or section structure.
+The new design must be a faithful aesthetic mimic of https://shuttletv.su/
 
-Design Direction
-Do not copy or replicate any existing site's layout, UI, or sections. Instead, build a completely original design from scratch, loosely inspired by the following aesthetic cues:
+Do not copy ShuttleTV's content, branding, or code — only replicate its 
+visual language, layout patterns, and design system as described below.
+Surprise me with how close you can get it to feel like ShuttleTV, 
+but adapted for an anime platform.
 
-Glassmorphism / glassy card sections — frosted glass panels, translucent backgrounds, blur effects (as seen on ShuttleTV)
-Bold hero section — a large, cinematic title displayed prominently when the page first loads (similar to Netflix's hero banner)
-Dark, immersive theme — dark backgrounds that make content pop, consistent with anime streaming platforms
-Modern, polished UI — clean typography, smooth transitions, responsive layout
+---
 
-You have full creative freedom — redesign everything from scratch if needed. The goal is a visually impressive, original anime streaming platform UI.
+CORE VISUAL IDENTITY TO REPLICATE:
 
-Platform Purpose
-This platform is anime-only. All content, branding, search, and streaming integrations should be focused exclusively on anime titles.
+1. COLOR SYSTEM
+   - Primary background: near-black, very deep dark (#0a0a0f range)
+   - All surfaces: semi-transparent dark layers, never solid opaque blocks
+   - Accent color: use a single vivid accent (purple or cyan preferred) 
+     for highlights, active states, and CTAs
+   - Text: pure white for titles, muted grey for descriptions/metadata
+   - No light mode — dark only, always
 
-Streaming Provider Integration — CRITICAL
+2. GLASSMORPHISM — apply to EVERY surface, card, panel, and modal:
+   - background: rgba(255, 255, 255, 0.05) to rgba(255, 255, 255, 0.08)
+   - backdrop-filter: blur(16px) to blur(24px)
+   - border: 1px solid rgba(255, 255, 255, 0.08)
+   - border-radius: 12px to 16px on all cards and panels
+   - Subtle box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4)
+   - Apply this consistently — navbar, cards, modals, sidebars, dropdowns, 
+     search bar, player container, everything
 
-Audit all currently integrated streaming/embed providers. Identify which ones:
+3. NAVBAR
+   - Fully transparent or ultra-thin frosted glass bar pinned to the top
+   - Fades into the background — no hard visible edge
+   - Logo on the left, nav links centered or right-aligned
+   - Search bar inline in the navbar — glassmorphism styled, pill shape
+   - On scroll: navbar gains a slightly more visible glass background
 
-Are correctly configured and functional for anime
-Are broken, misconfigured, or simply don't support anime content
-Are returning errors or empty results
+4. HERO SECTION (top of homepage)
+   - Full-width, full-viewport-height cinematic banner
+   - Background: featured anime artwork/poster as a blurred, darkened full-bleed image
+   - Foreground: large bold title (60px+), short description, 2 CTA buttons 
+     (Watch Now + Add to Library)
+   - Gradient overlay: dark at bottom fading to transparent at top
+   - The title must be the dominant visual element — massive, cinematic typography
 
+5. CONTENT SECTIONS (Trending, Recently Added, Top Rated etc.)
+   - Horizontal scroll rows like ShuttleTV — not a grid
+   - Each row has a section title on the left with a "See All" link on the right
+   - Cards: portrait anime poster, glassmorphism overlay on hover showing title, 
+     episode count, rating
+   - Hover effect: card lifts with scale(1.05), glows with accent color shadow
+   - Smooth scroll behavior on the rows
 
-Currently confirmed working: MegaPlay — keep this one.
-For all non-working providers: remove them and replace with verified, functional anime streaming embed providers that:
+6. TYPOGRAPHY
+   - Font: use Inter, Outfit, or DM Sans from Google Fonts — clean, modern sans-serif
+   - Hero title: 600-700 weight, very large (clamp(2.5rem, 6vw, 5rem))
+   - Section titles: 500-600 weight, 1.2rem-1.5rem
+   - Card text: 400 weight, small and clean
+   - Letter-spacing: slightly wider on section headings
 
-Support searching and streaming anime by title
-Have publicly accessible embed/iframe URLs
-Work without requiring authentication or API keys (or document clearly if keys are needed)
-Examples to consider and verify: Gogo Anime embeds, Zoro/Aniwatch, AniPlay, 9anime embeds, VidSrc (anime), AllAnime — only include ones you can confirm work
+7. BACKGROUNDS & DEPTH
+   - Use layered radial gradients behind sections for depth:
+     radial-gradient(ellipse at top left, rgba(139,92,246,0.15), transparent)
+   - Animated subtle particle effect or noise texture overlay on the hero (optional but preferred)
+   - Cards appear to float above the background due to glass + shadow combination
+   - No flat, solid-color section backgrounds anywhere
 
+8. BUTTONS & INTERACTIVE ELEMENTS
+   - Primary CTA: filled with accent color, pill-shaped (border-radius: 999px), 
+     bold text, subtle glow on hover
+   - Secondary CTA: transparent with accent-colored border and text, same pill shape
+   - All buttons: smooth transition on hover (0.2s ease)
+   - Icon buttons: glassmorphism circle, icon centered
 
-Make the provider system modular — so providers can be swapped or toggled easily without breaking the rest of the app.
+9. SCROLLBAR
+   - Custom thin scrollbar: dark track, accent-colored thumb
+   - width: 4px, border-radius: 4px
 
+10. ANIMATIONS & TRANSITIONS
+    - Page load: sections fade in with a slight upward translate (opacity 0→1, 
+      translateY 20px→0, staggered per section)
+    - Card hover: scale + glow in 0.2s ease
+    - Navbar scroll effect: blur intensifies as user scrolls down
+    - All transitions: ease or cubic-bezier — no linear transitions anywhere
 
-Deliverables Expected
+---
 
-Full redesigned frontend (HTML/CSS/JS or React — your choice)
-Working anime search that queries across all functional providers
-Streaming/embed player that loads the correct anime from the selected provider
-Clean, documented provider configuration so broken ones can be identified and swapped
+WHAT TO COMPLETELY REMOVE FROM THE CURRENT DESIGN:
+- Any solid opaque white, grey, or colored backgrounds on cards or panels
+- Any hard borders or visible dividers between sections
+- Any non-glassmorphism styled components
+- Any flat or non-layered layout sections
+- The current hero/banner if it does not match the cinematic full-viewport style above
+- Any component that looks like it belongs to a generic template or the old design
+
+---
+
+IMPLEMENTATION RULES:
+- Redesign the CSS/styling layer completely — do not patch the old styles
+- Every component must be re-styled from scratch using the system above
+- Preserve all existing JavaScript functionality (search, player, library, 
+  import/export, provider fallback) — only the visual layer changes
+- Make it fully responsive — the glassmorphism layout must work on mobile too
+  (cards stack, navbar collapses to a hamburger, hero scales down cleanly)
+- Do not ask for approval mid-task — complete the full redesign in one pass
+- When done, confirm which sections were redesigned and flag anything skipped
