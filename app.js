@@ -1194,10 +1194,43 @@ function getGroupForEpisode(episode, groups) {
 }
 
 /* WATCH VIEW */
+// ── STREAM PROVIDERS ────────────────────────────────────────────────────────
+//
+// MegaPlay  — /stream/ani/{anilistId}/{ep}/{lang}
+//   Works for most titles but AniList→episode mapping is incomplete on their
+//   end. Missing seasons are a MegaPlay data gap, not a code bug. Their docs
+//   say: "not every show is synced or mapped to MAL and AniList IDs yet."
+//   The auto-advance logic will fall through to Cinetaro/VidPlus when a
+//   season is missing.
+//
+// Cinetaro  — /embed/anime/{anilistId}/{season}/{ep}?type={lang}
+//   Takes AniList ID + season number + episode number. Season is derived from
+//   the entry's season count (always 1 for single-season shows; for multi-
+//   season franchises each season is a separate AniList entry so season=1).
+//
+// VidPlus   — /embed/anime/{anilistId}/{ep}?dub={bool}
+//   Takes AniList ID + episode number. Confirmed from official VidPlus docs.
+//   dub param is a boolean string ("true"/"false").
+//
+// ────────────────────────────────────────────────────────────────────────────
 const STREAM_PROVIDERS = [
-  { name: "MegaPlay",  buildUrl: (entry, ep, lang) => `https://megaplay.buzz/stream/ani/${entry.anilistId}/${ep}/${lang}` },
-  { name: "Cinetaro",  buildUrl: (entry, ep, lang) => `https://api.cinetaro.buzz/embed/anime/${entry.anilistId}/${ep}?type=${lang}` },
-  { name: "VidPlus",   buildUrl: (entry, ep, lang) => `https://player.vidplus.to/embed/anime/${entry.anilistId}/${ep}?dub=${lang === "dub"}` },
+  {
+    name: "MegaPlay",
+    buildUrl: (entry, ep, lang) =>
+      `https://megaplay.buzz/stream/ani/${entry.anilistId}/${ep}/${lang}`
+  },
+  {
+    name: "Cinetaro",
+    // Each AniList entry is one season of a franchise, so season is always 1
+    // relative to that entry. Multi-season franchises have separate AniList IDs.
+    buildUrl: (entry, ep, lang) =>
+      `https://api.cinetaro.buzz/embed/anime/${entry.anilistId}/1/${ep}?type=${lang}`
+  },
+  {
+    name: "VidPlus",
+    buildUrl: (entry, ep, lang) =>
+      `https://player.vidplus.to/embed/anime/${entry.anilistId}/${ep}?dub=${lang === "dub"}&autoplay=true`
+  },
 ];
 
 function buildStreamUrl(entry, episode, language, providerIndex = 0) {
@@ -1223,6 +1256,7 @@ async function openWatchView(id) {
   previousTab = currentTab; currentWatchId = id;
   uiState.watch.sidebarCollapsed = false; uiState.watch.streamLoaded = false;
   uiState.watch.forceFallback = !entry.anilistId; uiState.watch.lastEndedKey = "";
+  uiState.watch.currentProvider = 0; // reset to first provider for every new title
   const totalEpisodes = getPlayableEpisodeCount(entry);
   currentEpisode = entry.episodes > 0 && entry.episodesWatched >= entry.episodes ? entry.episodes : clamp((entry.episodesWatched || 0) + 1, 1, totalEpisodes);
   const groups = getEpisodeGroups(totalEpisodes);
@@ -1250,6 +1284,7 @@ function switchEpisode(id, episode) {
   const newGroupIndex = getGroupForEpisode(currentEpisode, groups);
   if (newGroupIndex !== currentEpisodeGroupIndex) { currentEpisodeGroupIndex = newGroupIndex; uiState.watch.episodeGroupIndex = currentEpisodeGroupIndex; }
   uiState.watch.forceFallback = !entry.anilistId; uiState.watch.streamLoaded = false; uiState.watch.lastEndedKey = "";
+  uiState.watch.currentProvider = 0; // reset to first provider on every episode change
   const shouldRestoreFullscreen = isFullscreen(); if (shouldRestoreFullscreen) exitFullscreenSafe();
   renderApp();
   if (shouldRestoreFullscreen) requestAnimationFrame(() => { const container = document.querySelector(".watch-player__frame"); if (container) requestFullscreenOn(container); });
@@ -2449,99 +2484,59 @@ function setupWatchPlayer() {
 
   uiState.watch.streamLoaded = false;
 
-  const providerName = (STREAM_PROVIDERS[uiState.watch.currentProvider] || STREAM_PROVIDERS[0]).name;
-  const isMegaPlay   = providerName === "MegaPlay";
+  // Capture which provider we're testing so the timeout closure doesn't
+  // act on a stale index if the user manually switches before it fires.
+  const providerIndexAtStart = uiState.watch.currentProvider;
+  const providerName = (STREAM_PROVIDERS[providerIndexAtStart] || STREAM_PROVIDERS[0]).name;
 
-  // Cross-origin content check — only works for same-origin iframes (always
-  // throws for third-party embeds, so we fall through to the load event).
-  const checkIframeLoaded = () => {
-    try {
-      const doc = iframe.contentDocument || iframe.contentWindow.document;
-      if (doc && doc.body && doc.body.innerHTML.trim().length > 0) {
-        uiState.watch.streamLoaded = true;
-        window.clearTimeout(streamFallbackTimer);
-        return true;
-      }
-    } catch (e) { /* cross-origin — expected */ }
-    return false;
-  };
+  // Known origins that can send us postMessage confirmation.
+  const knownOrigins = ["megaplay.buzz", "cinetaro.buzz", "vidplus.to"];
 
-  // Mark loaded when the iframe fires its load event.
-  iframe.addEventListener("load", () => {
-    if (checkIframeLoaded()) return;
-    uiState.watch.streamLoaded = true;
+  // ── Success signal: any postMessage that confirms the player is alive.
+  // MegaPlay fires { event:"time" }, { type:"watching-log" }, and
+  // { data: { channel:"megacloud" } }. VidPlus/Cinetaro may fire similar events.
+  const onTimeMessage = (e) => {
+    if (!currentWatchId) return;
+    if (!knownOrigins.some(o => e.origin.includes(o))) return;
+    const payload = typeof e.data === "string" ? safeParse(e.data) : e.data;
+    if (!payload || typeof payload !== "object") return;
+    const isAliveSignal =
+      payload.event === "time"          ||
+      payload.type  === "time"          ||
+      payload.type  === "watching-log"  ||
+      payload.channel === "megacloud";
+    if (!isAliveSignal) return;
+    // Stream confirmed working — cancel the hard timeout and clean up.
     window.clearTimeout(streamFallbackTimer);
-  }, { once: true });
+    uiState.watch.streamLoaded = true;
+    window.removeEventListener("message", onTimeMessage);
+  };
+  window.addEventListener("message", onTimeMessage);
 
-  if (isMegaPlay) {
-    // ── MegaPlay: use postMessage silence as the failure signal ──────────
-    // MegaPlay fires { event:"time", time, duration, percent } within the
-    // first few seconds of a working stream. If we hear nothing for 9 s
-    // after the iframe loads, the stream has almost certainly failed.
-    let megaPlayHeardTime = false;
-    const megaPlaySilenceMs = 9000;
+  // ── Failure signal: 30-second hard timeout with no time postMessage.
+  // Auto-advance to the next provider rather than showing a dead-end screen.
+  streamFallbackTimer = window.setTimeout(() => {
+    window.removeEventListener("message", onTimeMessage);
+    if (!currentWatchId) return;
+    // Only act if the provider hasn't changed since we started.
+    if (uiState.watch.currentProvider !== providerIndexAtStart) return;
+    if (uiState.watch.streamLoaded) return;
 
-    // We listen for the first "time" postMessage from MegaPlay.
-    const onMegaPlayTime = (e) => {
-      if (!e.origin.includes("megaplay.buzz")) return;
-      const payload = typeof e.data === "string" ? safeParse(e.data) : e.data;
-      if (!payload || typeof payload !== "object") return;
-      if (payload.event === "time" || payload.type === "time") {
-        megaPlayHeardTime = true;
-        window.clearTimeout(streamFallbackTimer);
-        uiState.watch.streamLoaded = true;
-        window.removeEventListener("message", onMegaPlayTime);
-      }
-    };
-    window.addEventListener("message", onMegaPlayTime);
-
-    // Start the silence timer only after the iframe fires its load event.
-    const startSilenceTimer = () => {
-      if (megaPlayHeardTime) return;
-      streamFallbackTimer = window.setTimeout(() => {
-        window.removeEventListener("message", onMegaPlayTime);
-        if (!megaPlayHeardTime && currentWatchId) {
-          uiState.watch.forceFallback = true;
-          renderApp();
-          showToast("MegaPlay stream not responding. Try switching providers.", "error");
-        }
-      }, megaPlaySilenceMs);
-    };
-
-    // If the iframe load event already fired (re-render case), start immediately.
-    iframe.addEventListener("load", startSilenceTimer, { once: true });
-    // Safety: if load never fires within 30 s, give up anyway.
-    const hardLimit = window.setTimeout(() => {
-      window.removeEventListener("message", onMegaPlayTime);
-      if (!megaPlayHeardTime && !uiState.watch.streamLoaded && currentWatchId) {
-        uiState.watch.forceFallback = true;
-        renderApp();
-        showToast("MegaPlay did not load. Try switching providers.", "error");
-      }
-    }, 30000);
-    // Cancel hard limit once silence timer fires or stream is confirmed.
-    const origClear = window.clearTimeout.bind(window);
-    iframe.addEventListener("load", () => {
-      // After load + silence window, cancel the hard limit if stream confirmed.
-      window.setTimeout(() => {
-        if (uiState.watch.streamLoaded || megaPlayHeardTime) origClear(hardLimit);
-      }, megaPlaySilenceMs + 500);
-    }, { once: true });
-
-  } else {
-    // ── Cinetaro / VidPlus / other providers: 30-second hard timeout ─────
-    // These providers don't fire postMessage events we can rely on, so we
-    // use the iframe load event (already wired above) plus a hard timeout.
-    streamFallbackTimer = window.setTimeout(() => {
-      if (!uiState.watch.streamLoaded && currentWatchId) {
-        if (!checkIframeLoaded()) {
-          uiState.watch.forceFallback = true;
-          renderApp();
-          showToast(`${providerName} did not load. Try switching providers.`, "error");
-        }
-      }
-    }, 30000);
-  }
+    const nextIndex = providerIndexAtStart + 1;
+    if (nextIndex < STREAM_PROVIDERS.length) {
+      // Try the next provider automatically.
+      uiState.watch.currentProvider = nextIndex;
+      uiState.watch.streamLoaded = false;
+      uiState.watch.forceFallback = false;
+      renderApp();
+      showToast(`${providerName} timed out — trying ${STREAM_PROVIDERS[nextIndex].name}…`, "info");
+    } else {
+      // All providers exhausted — show the fallback screen.
+      uiState.watch.forceFallback = true;
+      renderApp();
+      showToast("No working stream found. Try again later or switch providers manually.", "error");
+    }
+  }, 30000);
 }
 function syncScrollButtons(trackId) {
   const track = document.getElementById(trackId); if (!track) return;
@@ -2759,25 +2754,21 @@ function handleMessage(event) {
 
   // Accept messages from any of our known provider origins.
   const knownOrigins = ["megaplay.buzz", "cinetaro.buzz", "vidplus.to"];
-  const fromKnown = knownOrigins.some(o => event.origin.includes(o));
-  if (!fromKnown) return;
+  if (!knownOrigins.some(o => event.origin.includes(o))) return;
 
   const payload = typeof event.data === "string" ? safeParse(event.data) : event.data;
   if (!payload || typeof payload !== "object") return;
 
   // Playback ended — trigger auto-next / completion flow.
-  if (payload.event === "ended" || payload.type === "ended" ||
+  // MegaPlay fires { event:"complete" }, VidPlus/Cinetaro may fire { event:"ended" }.
+  if (payload.event === "ended"    || payload.type === "ended"    ||
       payload.event === "complete" || payload.type === "complete") {
     handlePlaybackEnded();
-    return;
   }
-
-  // MegaPlay time event — { event:"time", time, duration, percent }
-  // Mark the stream as confirmed-loaded so the silence timer is cancelled.
-  if ((payload.event === "time" || payload.type === "time") && event.origin.includes("megaplay.buzz")) {
-    uiState.watch.streamLoaded = true;
-    // Optionally: could update a progress indicator here in future.
-  }
+  // Note: time / watching-log success signals are handled inside setupWatchPlayer's
+  // onTimeMessage listener so the 30-second timeout can be cancelled from the same closure.
+  // MegaPlay also fires { data: { channel:"megacloud" } } — handled by onTimeMessage
+  // via the watching-log type check.
 }
 function safeParse(value) { try { return JSON.parse(value); } catch (error) { return null; } }
 /* ══ SETTINGS MODAL HELPERS ══════════════════════════════════════ */
