@@ -118,6 +118,9 @@ const uiState = {
   accentColor: "#7c3aed",
   compactMode: false,
   reducedMotion: false,
+  colorIntensity: 100,
+  compactView: false,
+  disableAnimations: false,
   navMenuOpen: false,
   navSearchOpen: false,
   focusInputId: "",
@@ -127,7 +130,8 @@ const uiState = {
   browse: {
     mode: "seasonal", genre: "Action", title: "This Season",
     subtitle: "", results: [], loading: false, error: "",
-    requestId: 0, initialized: false
+    requestId: 0, initialized: false,
+    page: 1, hasMore: true
   },
   search: { query: "", results: [], loading: false, error: "", requestId: 0 },
   watch: {
@@ -342,11 +346,18 @@ function loadData() {
   uiState.accentColor = settings.accentColor || "#7c3aed";
   uiState.compactMode = settings.compactMode || false;
   uiState.reducedMotion = settings.reducedMotion || false;
+  // New settings keys
+  uiState.colorIntensity = (settings.colorIntensity !== undefined) ? Number(settings.colorIntensity) : 100;
+  uiState.compactView    = settings.compactView    || false;
+  uiState.disableAnimations = settings.disableAnimations || false;
   document.documentElement.style.setProperty("--accent", uiState.accentColor);
   document.documentElement.style.setProperty("--accent-bright", uiState.accentColor);
+  document.documentElement.style.setProperty("--accent-opacity", String(uiState.colorIntensity / 100));
   document.documentElement.setAttribute("data-theme", uiState.theme);
   document.body.classList.toggle("compact-mode", uiState.compactMode);
   document.body.classList.toggle("reduced-motion", uiState.reducedMotion);
+  document.body.classList.toggle("compact-view", uiState.compactView);
+  document.body.classList.toggle("no-animations", uiState.disableAnimations);
   reconcileLibrary();
 }
 function saveData() {
@@ -356,7 +367,10 @@ function saveData() {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify({
     accentColor: uiState.accentColor,
     compactMode: uiState.compactMode,
-    reducedMotion: uiState.reducedMotion
+    reducedMotion: uiState.reducedMotion,
+    colorIntensity: uiState.colorIntensity,
+    compactView: uiState.compactView,
+    disableAnimations: uiState.disableAnimations
   }));
 }
 function reconcileLibrary() {
@@ -533,10 +547,20 @@ function renderHeroCarousel(entries) {
 function initHeroCarousel() {
   const carousel = document.getElementById("heroCarousel");
   if (!carousel) return;
+
+  // Change 7 — Guard against redundant restarts.
+  // If the timer is already running and the carousel DOM has the same number of
+  // slides as the last initialisation, the carousel is already in a good state —
+  // skip the clearInterval / setInterval cycle so unrelated renderApp() calls
+  // (e.g. opening a status picker while on the Home tab) do not reset progress.
+  const slides = Array.from(carousel.querySelectorAll(".hc-slide"));
+  if (heroState.timer && slides.length === heroState.total && heroState.total > 1) {
+    return; // carousel is already running with the same DOM — nothing to do
+  }
+
   clearInterval(heroState.timer);
   cancelAnimationFrame(heroState.rafId);
 
-  const slides = Array.from(carousel.querySelectorAll(".hc-slide"));
   const dots   = Array.from(carousel.querySelectorAll(".hc-dot"));
   const thumbs = Array.from(carousel.querySelectorAll(".hc-thumb"));
   heroState.total = slides.length;
@@ -934,21 +958,37 @@ function adaptAniListMedia(media) {
     status: media.status || ""
   };
 }
-async function loadBrowse(mode, genre = uiState.browse.genre) {
-  uiState.browse.mode = mode; uiState.browse.genre = genre;
+async function loadBrowse(mode, genre = uiState.browse.genre, page = 1) {
+  // When page === 1 (mode/genre switch): reset state and disconnect any active observer
+  if (page === 1) {
+    uiState.browse.mode = mode; uiState.browse.genre = genre;
+    uiState.browse.page = 1; uiState.browse.hasMore = true;
+    if (window._browseObserver) { window._browseObserver.disconnect(); window._browseObserver = null; }
+  }
   uiState.browse.loading = true; uiState.browse.error = ""; queueRender();
   const requestId = ++uiState.browse.requestId;
+  const perPage = 30;
   const season = getSeasonFromDate(new Date()), seasonYear = new Date().getFullYear();
-  let variables = { page: 1, perPage: 30, sort: ["POPULARITY_DESC"] };
+  let variables = { page, perPage, sort: ["POPULARITY_DESC"] };
   let title = "This Season", subtitle = `${season.charAt(0)}${season.slice(1).toLowerCase()} releases, sorted by popularity.`;
-  if (mode === "top") { variables = { page: 1, perPage: 30, sort: ["SCORE_DESC"] }; title = "Top Rated"; subtitle = "High scoring anime from AniList."; }
-  else if (mode === "popular") { variables = { page: 1, perPage: 30, sort: ["POPULARITY_DESC"] }; title = "Most Popular"; subtitle = "Heavy hitters with the biggest audiences."; }
-  else if (mode === "genre") { variables = { page: 1, perPage: 30, sort: ["SCORE_DESC"], genre }; title = `${genre} Highlights`; subtitle = `Top rated picks in ${genre}.`; }
-  else { variables = { page: 1, perPage: 30, sort: ["POPULARITY_DESC"], season, seasonYear }; }
+  if (mode === "top") { variables = { page, perPage, sort: ["SCORE_DESC"] }; title = "Top Rated"; subtitle = "High scoring anime from AniList."; }
+  else if (mode === "popular") { variables = { page, perPage, sort: ["POPULARITY_DESC"] }; title = "Most Popular"; subtitle = "Heavy hitters with the biggest audiences."; }
+  else if (mode === "genre") { variables = { page, perPage, sort: ["SCORE_DESC"], genre }; title = `${genre} Highlights`; subtitle = `Top rated picks in ${genre}.`; }
+  else { variables = { page, perPage, sort: ["POPULARITY_DESC"], season, seasonYear }; }
   try {
     const data = await fetchAniList(BROWSE_QUERY, variables);
     if (requestId !== uiState.browse.requestId) return;
-    uiState.browse.results = data.Page.media.map(adaptAniListMedia);
+    const newItems = data.Page.media.map(adaptAniListMedia);
+    if (page === 1) {
+      // Replace results on first page (mode/genre switch)
+      uiState.browse.results = newItems;
+    } else {
+      // Append results on subsequent pages (sentinel triggered)
+      uiState.browse.results = [...uiState.browse.results, ...newItems];
+      uiState.browse.page = page;
+    }
+    // Set hasMore = false when returned item count is less than perPage
+    if (newItems.length < perPage) { uiState.browse.hasMore = false; }
     uiState.browse.title = title; uiState.browse.subtitle = subtitle;
     uiState.browse.loading = false; uiState.browse.initialized = true; queueRender();
   } catch (error) {
@@ -1046,7 +1086,7 @@ function renderBrowse() {
       </div>
       <div class="status-line">${escapeHtml(uiState.browse.title)}${uiState.browse.subtitle ? ` - ${escapeHtml(uiState.browse.subtitle)}` : ""}</div>
     </section>
-    ${uiState.browse.loading ? renderEmptyState("...", "Loading AniList results", "AniVault is pulling the latest browse results.") : uiState.browse.error ? renderEmptyState("!", "Browse is offline right now", uiState.browse.error) : uiState.browse.results.length ? `<section class="browse-results discover-grid">${uiState.browse.results.map((media) => renderBrowseCard(media)).join("")}</section>` : renderEmptyState("0", "No results yet", "Choose a browse mode to load anime from AniList.")}
+    ${uiState.browse.loading ? renderEmptyState("...", "Loading AniList results", "AniVault is pulling the latest browse results.") : uiState.browse.error ? renderEmptyState("!", "Browse is offline right now", uiState.browse.error) : uiState.browse.results.length ? `<section class="browse-results discover-grid">${uiState.browse.results.map((media) => renderBrowseCard(media)).join("")}</section>${uiState.browse.hasMore ? `<div id="browseSentinel" class="browse-sentinel"></div>` : ""}` : renderEmptyState("0", "No results yet", "Choose a browse mode to load anime from AniList.")}
   </div>`;
 }
 
@@ -1069,10 +1109,44 @@ async function runAniListSearch(query) {
     const data = await fetchAniList(SEARCH_QUERY, { search: query, page: 1, perPage: 20 });
     if (requestId !== uiState.search.requestId) return;
     uiState.search.results = data.Page.media.map(adaptAniListMedia);
-    uiState.search.loading = false; uiState.search.error = ""; queueRender();
+    uiState.search.loading = false; uiState.search.error = "";
+    
+    // Change 6: Surgical DOM update — replace only the AniList results section content
+    // Do NOT call queueRender() or renderApp() — this preserves input focus
+    const anilistSection = document.querySelector(".search-layout .section");
+    if (anilistSection) {
+      // Find the content area after .section__head
+      const sectionHead = anilistSection.querySelector(".section__head");
+      if (sectionHead) {
+        // Generate the results HTML (same logic as renderSearch())
+        const resultsHtml = uiState.search.results.length 
+          ? `<div class="browse-results">${uiState.search.results.map((media) => renderSearchCard(media)).join("")}</div>`
+          : renderEmptyState("0", "No AniList results found", "Try a different spelling or a shorter search term.");
+        
+        // Remove all siblings after .section__head and insert new content
+        while (sectionHead.nextSibling) {
+          sectionHead.nextSibling.remove();
+        }
+        sectionHead.insertAdjacentHTML("afterend", resultsHtml);
+      }
+    }
   } catch (error) {
     if (requestId !== uiState.search.requestId) return;
-    uiState.search.loading = false; uiState.search.error = error.message; queueRender();
+    uiState.search.loading = false; uiState.search.error = error.message;
+    
+    // Change 6: Surgical DOM update for error state
+    const anilistSection = document.querySelector(".search-layout .section");
+    if (anilistSection) {
+      const sectionHead = anilistSection.querySelector(".section__head");
+      if (sectionHead) {
+        const errorHtml = renderEmptyState("!", "Search is offline right now", uiState.search.error);
+        while (sectionHead.nextSibling) {
+          sectionHead.nextSibling.remove();
+        }
+        sectionHead.insertAdjacentHTML("afterend", errorHtml);
+      }
+    }
+    
     showToast("AniList search failed. Check your connection and try again.", "error");
   }
 }
@@ -1552,50 +1626,75 @@ function renderOverlay() {
   }
   if (uiState.overlay.type === "settings") {
     const accentColors = [
-      { name: "Violet", value: "#7c3aed" },
-      { name: "Blue", value: "#2563eb" },
-      { name: "Cyan", value: "#0891b2" },
+      { name: "Violet",  value: "#7c3aed" },
+      { name: "Blue",    value: "#2563eb" },
+      { name: "Cyan",    value: "#0891b2" },
       { name: "Emerald", value: "#059669" },
-      { name: "Orange", value: "#ea580c" },
-      { name: "Pink", value: "#db2777" },
-      { name: "Red", value: "#dc2626" },
-      { name: "Yellow", value: "#ca8a04" }
+      { name: "Orange",  value: "#ea580c" },
+      { name: "Pink",    value: "#db2777" },
+      { name: "Red",     value: "#dc2626" },
+      { name: "Yellow",  value: "#ca8a04" }
     ];
-    return `<div class="overlay" data-action="close-overlay"><div class="overlay-card" role="dialog" aria-modal="true" aria-label="Settings" data-overlay-card>
-      <div class="overlay-card__meta" style="padding-bottom:16px;border-bottom:1px solid var(--glass-border);margin-bottom:16px;">
-        <div class="overlay-card__title">Settings</div>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:16px;">
-        <div><div class="muted" style="margin-bottom:8px;font-weight:600;">Accent Color</div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            ${accentColors.map(c => `<button type="button" class="chip ${uiState.accentColor === c.value ? "is-active" : ""}" data-action="set-accent" data-color="${c.value}" style="width:32px;height:32px;border-radius:50%;background:${c.value};border:2px solid ${uiState.accentColor === c.value ? "white" : "transparent"};"></button>`).join("")}
+    const intensity = uiState.colorIntensity !== undefined ? uiState.colorIntensity : 100;
+    return `<div class="overlay overlay--settings" data-action="close-overlay">
+      <div class="settings-card" role="dialog" aria-modal="true" aria-label="Settings" data-overlay-card>
+
+        <div class="settings-card__title">Settings</div>
+
+        <!-- Accent Color -->
+        <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:6px;">
+          <div class="settings-row__label">
+            <div class="settings-row__label-text">Accent Color</div>
+          </div>
+          <div class="settings-swatches">
+            ${accentColors.map(c => `<button type="button" class="settings-swatch ${uiState.accentColor === c.value ? "is-active" : ""}" data-action="set-accent" data-color="${c.value}" style="background:${c.value};" aria-label="${c.name}"></button>`).join("")}
           </div>
         </div>
-        <div><div class="muted" style="margin-bottom:8px;font-weight:600;">Volume</div>
-          <input type="range" min="0" max="1" step="0.1" value="${uiState.volume}" data-action="set-volume" style="width:100%;accent-color:var(--accent);">
+
+        <hr class="settings-divider">
+
+        <!-- Color Intensity -->
+        <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:6px;">
+          <div class="settings-row__label">
+            <div class="settings-row__label-text">Color Intensity</div>
+            <div class="settings-row__hint">Adjusts how strong the accent color appears across the UI</div>
+          </div>
+          <div class="settings-slider-wrap" style="width:100%;">
+            <input type="range" class="settings-slider" min="0" max="100" step="1" value="${intensity}" data-action="set-intensity" aria-label="Color intensity">
+            <span class="settings-slider-value" id="intensityDisplay">${intensity}%</span>
+          </div>
         </div>
-        <div style="display:flex;gap:12px;align-items:center;">
-          <label style="display:flex;gap:8px;align-items:center;cursor:pointer;">
-            <input type="checkbox" ${uiState.compactMode ? "checked" : ""} data-action="toggle-compact" style="accent-color:var(--accent);">
-            <span class="muted">Compact Mode</span>
-          </label>
-          <label style="display:flex;gap:8px;align-items:center;cursor:pointer;">
-            <input type="checkbox" ${uiState.reducedMotion ? "checked" : ""} data-action="toggle-reduced-motion" style="accent-color:var(--accent);">
-            <span class="muted">Reduced Motion</span>
-          </label>
+
+        <hr class="settings-divider">
+
+        <!-- Compact View -->
+        <label class="settings-row" style="cursor:pointer;">
+          <div class="settings-row__label">
+            <div class="settings-row__label-text">Compact View</div>
+            <div class="settings-row__hint">Reduces card sizes and spacing for a denser layout</div>
+          </div>
+          <input type="checkbox" class="settings-checkbox" ${uiState.compactView ? "checked" : ""} data-action="toggle-compact-view" aria-label="Compact View">
+        </label>
+
+        <hr class="settings-divider">
+
+        <!-- Disable Animations -->
+        <label class="settings-row" style="cursor:pointer;">
+          <div class="settings-row__label">
+            <div class="settings-row__label-text">Disable Animations</div>
+            <div class="settings-row__hint">Turns off transitions and animated effects across the platform</div>
+          </div>
+          <input type="checkbox" class="settings-checkbox" ${uiState.disableAnimations ? "checked" : ""} data-action="toggle-no-animations" aria-label="Disable Animations">
+        </label>
+
+        <!-- Footer: saved flash + close button -->
+        <div class="settings-footer">
+          <span class="saved-flash" id="settingsSavedFlash">&#10003; Saved</span>
+          <button type="button" class="nav-button" data-action="close-overlay">Close</button>
         </div>
+
       </div>
-      <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--glass-border);">
-        <div class="muted" style="margin-bottom:10px;font-weight:600;">Library Backup</div>
-        <div style="display:flex;gap:10px;">
-          <button type="button" class="action-button" data-action="export" style="flex:1;">&#8593; Export Backup</button>
-          <button type="button" class="secondary-button" data-action="import" style="flex:1;">&#8595; Import Backup</button>
-        </div>
-      </div>
-      <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--glass-border);text-align:right;">
-        <button type="button" class="nav-button" data-action="close-overlay">Close</button>
-      </div>
-    </div></div>`;
+    </div>`;
   }
   return "";
 }
@@ -2061,6 +2160,26 @@ function afterRender() {
   if (uiState.focusInputId) { const focusTarget = document.getElementById(uiState.focusInputId); if (focusTarget) { focusTarget.focus(); if (typeof focusTarget.setSelectionRange === "function") focusTarget.setSelectionRange(focusTarget.value.length, focusTarget.value.length); } uiState.focusInputId = ""; }
   if (currentTab === "search" && !currentWatchId) { const pageInput = document.getElementById("searchPageInput"); if (pageInput && document.activeElement !== pageInput && uiState.search.query) pageInput.setSelectionRange(pageInput.value.length, pageInput.value.length); }
   if (currentTab === "browse" && !uiState.browse.initialized && !uiState.browse.loading) loadBrowse("seasonal");
+  if (currentTab === "browse") {
+    const sentinel = document.getElementById("browseSentinel");
+    if (sentinel) {
+      // Disconnect any existing observer before attaching a new one
+      if (window._browseObserver) {
+        window._browseObserver.disconnect();
+        window._browseObserver = null;
+      }
+      window._browseObserver = new IntersectionObserver((entries) => {
+        if (entries[0].isIntersecting && !uiState.browse.loading) {
+          loadBrowse(uiState.browse.mode, uiState.browse.genre, uiState.browse.page + 1);
+        }
+      }, { threshold: 0.1 });
+      window._browseObserver.observe(sentinel);
+    }
+  }
+  // Re-apply settings modal focus trap and scroll lock after any re-render while settings is open
+  if (uiState.overlay && uiState.overlay.type === "settings") {
+    document.body.style.overflow = "hidden";
+  }
   if (currentWatchId) { const activeEpisode = document.querySelector(".ep-row.current"); if (activeEpisode) activeEpisode.scrollIntoView({ block: "nearest" }); renderRatingComponent(currentWatchId, "watchViewRatingContainer"); paintEpisodeList(currentWatchId); const currentEntry = getEntry(currentWatchId); if (currentEntry && franchiseCache[currentEntry.anilistId || currentEntry.id]) renderWatchOrder(currentEntry.anilistId || currentEntry.id, currentWatchOrderSort); setupWatchPlayer(); } else window.clearTimeout(streamFallbackTimer);
 }
 function setupWatchPlayer() {
@@ -2154,12 +2273,33 @@ function handleClick(event) {
   if (action === "row-scroll") { scrollRow(actionTarget.dataset.target, actionTarget.dataset.dir); return; }
   if (action === "open-watch") { openWatchView(Number(actionTarget.dataset.id)); return; }
   if (action === "open-detail") { openDetailOverlay(Number(actionTarget.dataset.id)); return; }
-  if (action === "close-overlay") { uiState.overlay = null; renderApp(); return; }
-  if (action === "open-settings") { uiState.overlay = { type: "settings" }; renderApp(); return; }
-  if (action === "set-accent") { uiState.accentColor = actionTarget.dataset.color; document.documentElement.style.setProperty("--accent", uiState.accentColor); document.documentElement.style.setProperty("--accent-bright", actionTarget.dataset.color); saveData(); renderApp(); return; }
+  if (action === "close-overlay") {
+    const wasSettings = uiState.overlay && uiState.overlay.type === "settings";
+    uiState.overlay = null;
+    renderApp();
+    if (wasSettings) settingsOnClose();
+    return;
+  }
+  if (action === "open-settings") { uiState.overlay = { type: "settings" }; renderApp(); settingsAfterRender(); return; }
+  if (action === "set-accent") {
+    uiState.accentColor = actionTarget.dataset.color;
+    document.documentElement.style.setProperty("--accent", uiState.accentColor);
+    document.documentElement.style.setProperty("--accent-bright", uiState.accentColor);
+    saveData(); renderApp(); settingsAfterRender(); flashSettingsSaved(); return;
+  }
   if (action === "set-volume") { uiState.volume = parseFloat(actionTarget.value); saveData(); return; }
   if (action === "toggle-compact") { uiState.compactMode = !uiState.compactMode; document.body.classList.toggle("compact-mode", uiState.compactMode); saveData(); renderApp(); return; }
   if (action === "toggle-reduced-motion") { uiState.reducedMotion = !uiState.reducedMotion; document.body.classList.toggle("reduced-motion", uiState.reducedMotion); saveData(); renderApp(); return; }
+  if (action === "toggle-compact-view") {
+    uiState.compactView = actionTarget.checked;
+    document.body.classList.toggle("compact-view", uiState.compactView);
+    saveData(); flashSettingsSaved(); return;
+  }
+  if (action === "toggle-no-animations") {
+    uiState.disableAnimations = actionTarget.checked;
+    document.body.classList.toggle("no-animations", uiState.disableAnimations);
+    saveData(); flashSettingsSaved(); return;
+  }
   if (action === "open-status-picker") { openStatusPicker(actionTarget.dataset.source, Number(actionTarget.dataset.id)); return; }
   if (action === "open-add-modal") {
     const source = actionTarget.dataset.source;
@@ -2199,7 +2339,31 @@ function handleClick(event) {
   if (action === "switch-episode-group") { const newGroupIndex = parseInt(actionTarget.dataset.groupIndex, 10); if (!isNaN(newGroupIndex) && currentWatchId) { currentEpisodeGroupIndex = newGroupIndex; uiState.watch.episodeGroupIndex = currentEpisodeGroupIndex; renderApp(); } return; }
 }
 function handleInput(event) {
-  if (event.target.id === "librarySearchInput") { uiState.library.query = event.target.value; uiState.focusInputId = "librarySearchInput"; renderApp(); return; }
+  // Settings: Color Intensity slider — live update, no re-render needed
+  if (event.target.dataset.action === "set-intensity") {
+    const val = parseInt(event.target.value, 10);
+    uiState.colorIntensity = val;
+    document.documentElement.style.setProperty("--accent-opacity", String(val / 100));
+    const display = document.getElementById("intensityDisplay");
+    if (display) display.textContent = val + "%";
+    saveData();
+    flashSettingsSaved();
+    return;
+  }
+  if (event.target.id === "librarySearchInput") {
+    // Change 5: Surgical DOM update — do NOT call renderApp() to avoid destroying the input
+    uiState.library.query = event.target.value;
+    // Do NOT set uiState.focusInputId — input is never destroyed, focus is never lost
+    const libraryGrid = document.querySelector(".library-grid");
+    if (libraryGrid) {
+      const entries = getFilteredLibraryEntries();
+      libraryGrid.innerHTML = entries.map((entry) => renderPosterCard(entry, { context: "grid", action: "open-watch" })).join("");
+    } else {
+      // Grid doesn't exist yet (empty state shown) — need a full re-render to switch from empty state to grid
+      renderApp();
+    }
+    return;
+  }
   if (["searchPageInput", "navSearchInput", "mobileNavSearchInput"].includes(event.target.id)) {
     uiState.search.query = event.target.value; currentTab = "search";
     uiState.navSearchOpen = false; /* nav search is always visible now */
@@ -2241,7 +2405,17 @@ function handleFocusOut(event) {
 function handleKeydown(event) {
   const tag = document.activeElement && document.activeElement.tagName ? document.activeElement.tagName.toLowerCase() : "";
   const isTyping = tag === "input" || tag === "textarea" || tag === "select" || (document.activeElement && document.activeElement.isContentEditable);
-  if (event.key === "Escape") { if (uiState.overlay) { uiState.overlay = null; renderApp(); return; } if (currentWatchId) closeWatchView(); return; }
+  if (event.key === "Escape") {
+    if (uiState.overlay) {
+      const wasSettings = uiState.overlay.type === "settings";
+      uiState.overlay = null;
+      renderApp();
+      if (wasSettings) settingsOnClose();
+      return;
+    }
+    if (currentWatchId) closeWatchView();
+    return;
+  }
   if (!currentWatchId || isTyping) return;
   if (event.key === "ArrowLeft") { event.preventDefault(); switchEpisode(currentWatchId, currentEpisode - 1); return; }
   if (event.key === "ArrowRight") { event.preventDefault(); switchEpisode(currentWatchId, currentEpisode + 1); return; }
@@ -2270,6 +2444,68 @@ function handleMessage(event) {
   if (payload.event === "ended" || payload.type === "ended") handlePlaybackEnded();
 }
 function safeParse(value) { try { return JSON.parse(value); } catch (error) { return null; } }
+/* ══ SETTINGS MODAL HELPERS ══════════════════════════════════════ */
+
+/**
+ * Called after the settings modal is rendered.
+ * - Locks body scroll
+ * - Traps focus inside the modal
+ * - Wires up Escape key and backdrop click-outside
+ */
+function settingsAfterRender() {
+  const card = document.querySelector(".settings-card");
+  if (!card) return;
+
+  // Scroll lock
+  document.body.style.overflow = "hidden";
+
+  // Focus the first focusable element inside the modal
+  const focusable = card.querySelectorAll(
+    'button, input, select, textarea, [tabindex]:not([tabindex="-1"])'
+  );
+  if (focusable.length) focusable[0].focus();
+
+  // Focus trap: keep Tab/Shift+Tab inside the modal
+  function trapFocus(e) {
+    if (!uiState.overlay || uiState.overlay.type !== "settings") {
+      document.removeEventListener("keydown", trapFocus);
+      return;
+    }
+    if (e.key !== "Tab") return;
+    const els = Array.from(card.querySelectorAll(
+      'button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    ));
+    if (!els.length) return;
+    const first = els[0];
+    const last  = els[els.length - 1];
+    if (e.shiftKey) {
+      if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+    } else {
+      if (document.activeElement === last)  { e.preventDefault(); first.focus(); }
+    }
+  }
+  document.addEventListener("keydown", trapFocus);
+}
+
+/**
+ * Restores body scroll when the settings modal closes.
+ * Called from the close-overlay action when overlay was settings.
+ */
+function settingsOnClose() {
+  document.body.style.overflow = "";
+}
+
+/**
+ * Briefly shows the "✓ Saved" flash badge inside the settings modal.
+ */
+function flashSettingsSaved() {
+  const el = document.getElementById("settingsSavedFlash");
+  if (!el) return;
+  el.classList.add("is-visible");
+  clearTimeout(el._flashTimer);
+  el._flashTimer = setTimeout(() => el.classList.remove("is-visible"), 1500);
+}
+
 function init() {
   loadData(); renderApp();
   app.addEventListener("click", handleClick); app.addEventListener("input", handleInput); app.addEventListener("change", handleChange); app.addEventListener("focusout", handleFocusOut);

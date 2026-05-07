@@ -2200,3 +2200,161 @@ body.is-scrolling .discover-card .discover-card__body {
 [data-theme="light"] .add-modal__row--active { background: rgba(109,40,217,0.08); border-left-color: var(--accent); }
 [data-theme="light"] .add-modal__close { border-color: rgba(0,0,0,0.12); background: rgba(0,0,0,0.04); color: var(--text2); }
 [data-theme="light"] .add-modal__close:hover { background: rgba(0,0,0,0.08); color: var(--text1); }
+
+/* ══ SETTINGS MODAL ══════════════════════════════════════════════ */
+
+/* Settings overlay uses the standard .overlay backdrop — override to match spec */
+.overlay--settings {
+  background: rgba(0, 0, 0, 0.60);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* Settings card — consistent 24px padding on all four sides */
+.settings-card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(124, 58, 237, 0.20);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(124, 58, 237, 0.10);
+  max-width: 460px;
+  width: 100%;
+  padding: 24px;
+  animation: scaleIn 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  /* Smooth open transition — skipped when no-animations is active */
+}
+
+/* Settings title row */
+.settings-card__title {
+  font-size: 1.15em;
+  font-weight: 800;
+  color: var(--text1);
+  padding-top: 4px;
+  margin-bottom: 16px;
+}
+
+/* Divider between sections */
+.settings-divider {
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  margin: 16px 0;
+}
+
+/* Each setting row: label on left, control on right, vertically centered */
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  gap: 16px;
+}
+
+/* Label + hint stacked on the left */
+.settings-row__label { flex: 1; min-width: 0; }
+.settings-row__label-text {
+  font-size: 0.88em;
+  font-weight: 600;
+  color: var(--text1);
+  line-height: 1.3;
+}
+.settings-row__hint {
+  font-size: 12px;
+  color: var(--text3);
+  margin-top: 2px;
+  line-height: 1.4;
+}
+
+/* Accent color swatches row — full width below its label */
+.settings-swatches {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 0 4px;
+}
+.settings-swatch {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  flex-shrink: 0;
+}
+.settings-swatch:hover { transform: scale(1.12); }
+.settings-swatch.is-active {
+  border-color: white;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.25);
+}
+
+/* Intensity slider — full width, respects padding */
+.settings-slider-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+}
+.settings-slider {
+  flex: 1;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.settings-slider-value {
+  font-size: 0.8em;
+  font-weight: 700;
+  color: var(--text2);
+  min-width: 36px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+/* Checkbox toggle — right-aligned control */
+.settings-checkbox {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+/* Close button row — right-aligned, with top border and spacing */
+.settings-footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  padding-top: 16px;
+  margin-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* "✓ Saved" flash badge — appears near changed element */
+.saved-flash {
+  font-size: 0.72em;
+  font-weight: 700;
+  color: #22c55e;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.saved-flash.is-visible { opacity: 1; }
+
+/* ── no-animations: universally kill all transitions/animations ── */
+body.no-animations *,
+body.no-animations *::before,
+body.no-animations *::after {
+  animation-duration: 0ms !important;
+  transition-duration: 0ms !important;
+}
+
+/* ── compact-view: scale down cards and spacing ── */
+body.compact-view .poster-card { width: 128px; }
+body.compact-view .poster-card__media { width: 128px; height: 180px; }
+body.compact-view .continue-card { width: 300px; }
+body.compact-view .library-grid { gap: 14px; }
+body.compact-view .browse-results,
+body.compact-view .discover-grid { gap: 12px; }
+body.compact-view .poster-card__title { font-size: 0.72em; }
+body.compact-view .poster-card__meta { font-size: 0.64em; }
+body.compact-view .section { margin-bottom: 36px; }
