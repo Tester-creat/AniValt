@@ -1005,6 +1005,14 @@ body.is-scrolling .discover-card .discover-card__body {
 .wo-card-meta { font-size: 0.7em; color: var(--text3); margin-top: 3px; }
 .wo-card-relation { font-size: 0.68em; color: var(--text3); text-transform: capitalize; }
 .wo-card-progress { font-size: 0.7em; color: var(--accent-bright); margin-top: 3px; font-weight: 600; }
+.wo-card-add { font-size: 0.68em; color: var(--text3); margin-top: 3px; font-style: italic; }
+
+/* Current entry gets a subtle accent border */
+.wo-card--current .wo-cover-wrap {
+  border: 2px solid var(--accent);
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+.wo-cover--empty { background: var(--surface2); }
 
 /* ── RATING COMPONENT ───────────────────────────────── */
 .rating-component { display: flex; flex-direction: column; gap: 4px; padding: 4px 0; }

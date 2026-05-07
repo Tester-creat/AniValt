@@ -72,7 +72,14 @@ const EPISODE_DATA_QUERY = `query ($id: Int) {
 
 const FRANCHISE_RELATIONS_QUERY = `query ($id: Int) {
   Media(id: $id, type: ANIME) {
-    title { romaji }
+    title { romaji english }
+    format
+    seasonYear
+    startDate { year month day }
+    coverImage { large }
+    averageScore
+    episodes
+    status
     relations { edges {
       relationType
       node {
@@ -103,7 +110,7 @@ let currentEpisode = 1;
 let currentEpisodeGroupIndex = 0;
 const episodeCache = {};
 const franchiseCache = {};
-let currentWatchOrderSort = "recommended";
+let currentWatchOrderSort = "release";
 let watchViewRequestToken = 0;
 
 const uiState = {
@@ -277,11 +284,12 @@ function parseEpisodeTitle(title) {
   if (!Number.isFinite(number)) return null;
   return { number, name: rest.join(" - ").trim() || `Episode ${number}` };
 }
-function getDateWeight(startDate) {
-  if (!startDate || !startDate.year) return Number.POSITIVE_INFINITY;
-  const year = Number(startDate.year) || 0;
-  const month = Number(startDate.month) || 0;
-  const day = Number(startDate.day) || 0;
+function getDateWeight(startDate, seasonYear = 0) {
+  // Use startDate if it has a valid year, otherwise fall back to seasonYear
+  const year = (startDate && startDate.year) ? Number(startDate.year) : Number(seasonYear || 0);
+  if (!year) return Number.POSITIVE_INFINITY;
+  const month = (startDate && startDate.month) ? Number(startDate.month) : 0;
+  const day = (startDate && startDate.day) ? Number(startDate.day) : 0;
   return year * 10000 + month * 100 + day;
 }
 function formatRelationLabel(item) {
@@ -840,16 +848,43 @@ async function fetchFranchiseRelations(anilistId) {
   const media = data && data.Media ? data.Media : null;
   const currentEntry = getEntryByAnimeId(anilistId);
   const relations = [];
-  if (currentEntry) {
-    relations.push({ id: currentEntry.id, title: { romaji: currentEntry.title, english: currentEntry.titleEnglish }, coverImage: { large: currentEntry.cover }, type: "ANIME", format: "", seasonYear: currentEntry.year || 0, startDate: { year: currentEntry.year || 0, month: 0, day: 0 }, episodes: currentEntry.episodes || 0, status: currentEntry.status, averageScore: currentEntry.averageScore || 0, relationType: "current", isCurrent: true });
-  } else if (media) {
-    relations.push({ id: Number(anilistId), title: { romaji: media.title && media.title.romaji ? media.title.romaji : "Current Anime", english: "" }, coverImage: { large: "" }, type: "ANIME", format: "", seasonYear: 0, startDate: { year: 0, month: 0, day: 0 }, episodes: 0, status: "", averageScore: 0, relationType: "current", isCurrent: true });
-  }
+
+  // Build the "current" entry using AniList data for accurate startDate/format/seasonYear
+  // Fall back to library data for cover/title if AniList didn't return them
+  const currentStartDate = (media && media.startDate) ? media.startDate : { year: currentEntry ? (currentEntry.year || 0) : 0, month: 0, day: 0 };
+  const currentFormat = (media && media.format) ? media.format : "";
+  const currentSeasonYear = (media && media.seasonYear) ? media.seasonYear : (currentEntry ? (currentEntry.year || 0) : 0);
+  const currentAverageScore = (media && media.averageScore) ? media.averageScore : (currentEntry ? (currentEntry.averageScore || 0) : 0);
+  const currentEpisodes = (media && media.episodes) ? media.episodes : (currentEntry ? (currentEntry.episodes || 0) : 0);
+  const currentStatus = (media && media.status) ? media.status : (currentEntry ? (currentEntry.status || "") : "");
+  const currentTitle = {
+    romaji: (media && media.title && media.title.romaji) ? media.title.romaji : (currentEntry ? currentEntry.title : "Current Anime"),
+    english: (media && media.title && media.title.english) ? media.title.english : (currentEntry ? (currentEntry.titleEnglish || "") : "")
+  };
+  const currentCover = (media && media.coverImage && media.coverImage.large) ? media.coverImage.large : (currentEntry ? (currentEntry.cover || "") : "");
+
+  relations.push({
+    id: Number(anilistId),
+    title: currentTitle,
+    coverImage: { large: currentCover },
+    type: "ANIME",
+    format: currentFormat,
+    seasonYear: currentSeasonYear,
+    startDate: currentStartDate,
+    episodes: currentEpisodes,
+    status: currentStatus,
+    averageScore: currentAverageScore,
+    relationType: "current",
+    isCurrent: true
+  });
+
+  // Add all related entries — filter to ANIME type and known watch-order relation types
   (((media || {}).relations || {}).edges || []).forEach((edge) => {
     const node = edge && edge.node ? edge.node : null;
     if (!node || node.type !== "ANIME" || !WATCH_ORDER_RELATIONS.has(edge.relationType)) return;
     relations.push({ ...node, relationType: edge.relationType, isCurrent: false });
   });
+
   franchiseCache[anilistId] = relations;
   return relations;
 }
@@ -1066,13 +1101,13 @@ async function openWatchView(id) {
   currentEpisodeGroupIndex = getGroupForEpisode(currentEpisode, groups);
   uiState.watch.episodeGroupIndex = currentEpisodeGroupIndex;
   uiState.overlay = null; uiState.inlineStatusPicker = null; uiState.navMenuOpen = false;
-  currentWatchOrderSort = "recommended";
+  currentWatchOrderSort = "release";
   const requestToken = ++watchViewRequestToken;
-  renderApp(); renderRatingComponent(id, "watchViewRatingContainer"); paintEpisodeList(id); renderWatchOrder(entry.anilistId || entry.id, "recommended");
+  renderApp(); renderRatingComponent(id, "watchViewRatingContainer"); paintEpisodeList(id); renderWatchOrder(entry.anilistId || entry.id, "release");
   if (entry.anilistId) {
     fetchEpisodeData(entry.anilistId).then(() => { if (currentWatchId === id && requestToken === watchViewRequestToken) paintEpisodeList(id); }).catch(() => {});
-    fetchFranchiseRelations(entry.anilistId).then(() => { if (currentWatchId === id && requestToken === watchViewRequestToken) renderWatchOrder(entry.anilistId, "recommended"); }).catch(() => { if (currentWatchId === id && requestToken === watchViewRequestToken) renderWatchOrder(entry.anilistId, "recommended"); });
-  } else renderWatchOrder(entry.id, "recommended");
+    fetchFranchiseRelations(entry.anilistId).then(() => { if (currentWatchId === id && requestToken === watchViewRequestToken) renderWatchOrder(entry.anilistId, "release"); }).catch(() => { if (currentWatchId === id && requestToken === watchViewRequestToken) renderWatchOrder(entry.anilistId, "release"); });
+  } else renderWatchOrder(entry.id, "release");
 }
 function closeWatchView(targetTab = previousTab || "home") {
   currentWatchId = null; uiState.watch.forceFallback = false; uiState.watch.streamLoaded = false;
@@ -1152,26 +1187,85 @@ function paintEpisodeList(id) {
   list.innerHTML = renderEpisodeListHtml(entry, currentEpisodeGroupIndex);
   const currentRow = list.querySelector(".ep-row.current"); if (currentRow) currentRow.scrollIntoView({ block: "nearest" });
 }
-async function renderWatchOrder(anilistId, sortMode = "recommended") {
-  currentWatchOrderSort = sortMode; const mount = document.getElementById("watchOrderMount"); if (!mount) return;
+async function renderWatchOrder(anilistId, sortMode = "release") {
+  currentWatchOrderSort = sortMode;
+  const mount = document.getElementById("watchOrderMount");
+  if (!mount) return;
   const relations = franchiseCache[anilistId] || [];
   const currentLibraryEntry = getEntryByAnimeId(anilistId);
-  const currentFranchiseTitle = (currentLibraryEntry && getDisplayTitle(currentLibraryEntry)) || ((relations[0] && relations[0].title && (relations[0].title.english || relations[0].title.romaji)) || "This Franchise");
-  if (!relations.length) { mount.innerHTML = `<section class="watch-order-section"><div class="wo-header"><div><div class="wo-title">Watch Order</div><div class="wo-subtitle">${escapeHtml(currentFranchiseTitle)} - Complete Guide</div></div><div class="wo-toggle"><button type="button" class="wo-toggle-btn ${sortMode === "recommended" ? "active" : ""}" data-action="set-watch-order-sort" data-sort="recommended">Recommended</button><button type="button" class="wo-toggle-btn ${sortMode === "release" ? "active" : ""}" data-action="set-watch-order-sort" data-sort="release">Release Order</button></div></div>${renderEmptyState("...", "Loading watch order...", "AniVault is fetching the franchise guide from AniList.")}</section>`; return; }
+  const currentFranchiseTitle = (currentLibraryEntry && getDisplayTitle(currentLibraryEntry))
+    || ((relations[0] && relations[0].title && (relations[0].title.english || relations[0].title.romaji)) || "This Franchise");
+
+  // Toggle buttons — Release Order first since it's the default
+  const toggleHtml = `<div class="wo-toggle">
+    <button type="button" class="wo-toggle-btn ${sortMode === "release" ? "active" : ""}" data-action="set-watch-order-sort" data-sort="release">Release Order</button>
+    <button type="button" class="wo-toggle-btn ${sortMode === "recommended" ? "active" : ""}" data-action="set-watch-order-sort" data-sort="recommended">Recommended</button>
+  </div>`;
+
+  if (!relations.length) {
+    mount.innerHTML = `<section class="watch-order-section"><div class="wo-header"><div><div class="wo-title">Watch Order</div><div class="wo-subtitle">${escapeHtml(currentFranchiseTitle)} — Complete Guide</div></div>${toggleHtml}</div>${renderEmptyState("...", "Loading watch order...", "AniVault is fetching the franchise guide from AniList.")}</section>`;
+    return;
+  }
+
   const sorted = [...relations].sort((left, right) => {
-    if (sortMode === "release") return getDateWeight(left.startDate) - getDateWeight(right.startDate);
+    if (sortMode === "release") {
+      // Pure chronological: year → month → day, with seasonYear fallback
+      const wLeft  = getDateWeight(left.startDate,  left.seasonYear);
+      const wRight = getDateWeight(right.startDate, right.seasonYear);
+      if (wLeft !== wRight) return wLeft - wRight;
+      // Tie-break: current entry always first within same date
+      if (left.isCurrent) return -1;
+      if (right.isCurrent) return 1;
+      return 0;
+    }
+    // "recommended" — story-logical order: prequel → parent → current → sequel → side stories
     const priorityDiff = (WATCH_ORDER_PRIORITY[left.relationType] || 99) - (WATCH_ORDER_PRIORITY[right.relationType] || 99);
     if (priorityDiff !== 0) return priorityDiff;
-    return getDateWeight(left.startDate) - getDateWeight(right.startDate);
+    // Within same priority group, sort by release date
+    return getDateWeight(left.startDate, left.seasonYear) - getDateWeight(right.startDate, right.seasonYear);
   });
-  const cards = sorted.length <= 1 ? renderEmptyState("WO", "No related entries found for this franchise on AniList.", "AniList did not return more connected anime for this title.") : `<div class="wo-cards">${sorted.map(item => {
-    const libraryEntry = getEntryByAnimeId(item.id);
-    const title = (item.title && (item.title.english || item.title.romaji)) || "Untitled";
-    const relationLabel = formatRelationLabel(item);
-    const year = item.startDate && item.startDate.year ? item.startDate.year : (item.seasonYear || "Unknown");
-    return `<button type="button" class="wo-card" data-action="watch-order-card" data-id="${item.id}"><div class="wo-cover-wrap">${item.coverImage && item.coverImage.large ? `<img class="wo-cover" src="${escapeHtml(item.coverImage.large)}" alt="${escapeHtml(title)}">` : `<div class="wo-cover"></div>`}${item.format ? `<span class="wo-format-badge" style="background:${getFormatBadgeColor(item.format)}">${escapeHtml(item.format.replaceAll("_", " "))}</span>` : ""}${item.isCurrent ? `<span class="wo-now-badge">&#9679; NOW WATCHING</span>` : ""}</div><div class="wo-card-title">${escapeHtml(title)}</div><div class="wo-card-meta">${escapeHtml(String(year))}</div><div class="wo-card-relation">${escapeHtml(relationLabel)}</div>${item.averageScore ? `<div class="wo-card-meta">&#11088; ${item.averageScore}</div>` : ""}${libraryEntry ? `<div class="wo-card-progress">${libraryEntry.episodesWatched || 0}/${libraryEntry.episodes || "?"} ep</div>` : `<div class="wo-card-meta">Not Added</div>`}</button>`;
-  }).join("")}</div>`;
-  mount.innerHTML = `<section class="watch-order-section"><div class="wo-header"><div><div class="wo-title">Watch Order</div><div class="wo-subtitle">${escapeHtml(currentFranchiseTitle)} - Complete Guide</div></div><div class="wo-toggle"><button type="button" class="wo-toggle-btn ${sortMode === "recommended" ? "active" : ""}" data-action="set-watch-order-sort" data-sort="recommended">Recommended</button><button type="button" class="wo-toggle-btn ${sortMode === "release" ? "active" : ""}" data-action="set-watch-order-sort" data-sort="release">Release Order</button></div></div>${cards}</section>`;
+
+  // Only show the section if there are related entries beyond just the current one
+  const hasRelated = sorted.some(item => !item.isCurrent);
+
+  const cards = !hasRelated
+    ? renderEmptyState("🔗", "No related entries found", "AniList did not return connected anime for this title. It may be a standalone series.")
+    : `<div class="wo-cards">${sorted.map(item => {
+        const libraryEntry = getEntryByAnimeId(item.id);
+        const title = (item.title && (item.title.english || item.title.romaji)) || "Untitled";
+        const relationLabel = formatRelationLabel(item);
+        // Show the most precise date available
+        const year = (item.startDate && item.startDate.year) ? item.startDate.year : (item.seasonYear || "Unknown");
+        const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+        const monthLabel = (item.startDate && item.startDate.month && item.startDate.month > 0)
+          ? monthNames[item.startDate.month - 1] + " " : "";
+        const dateLabel = monthLabel + String(year);
+        return `<button type="button" class="wo-card ${item.isCurrent ? "wo-card--current" : ""}" data-action="watch-order-card" data-id="${item.id}">
+          <div class="wo-cover-wrap">
+            ${item.coverImage && item.coverImage.large ? `<img class="wo-cover" src="${escapeHtml(item.coverImage.large)}" alt="${escapeHtml(title)}">` : `<div class="wo-cover wo-cover--empty"></div>`}
+            ${item.format ? `<span class="wo-format-badge" style="background:${getFormatBadgeColor(item.format)}">${escapeHtml(item.format.replaceAll("_", " "))}</span>` : ""}
+            ${item.isCurrent ? `<span class="wo-now-badge">▶ NOW</span>` : ""}
+          </div>
+          <div class="wo-card-title">${escapeHtml(title)}</div>
+          <div class="wo-card-meta">${escapeHtml(dateLabel)}</div>
+          <div class="wo-card-relation">${escapeHtml(relationLabel)}</div>
+          ${item.averageScore ? `<div class="wo-card-meta">★ ${item.averageScore}</div>` : ""}
+          ${libraryEntry
+            ? `<div class="wo-card-progress">${libraryEntry.episodesWatched || 0}/${libraryEntry.episodes || "?"} ep</div>`
+            : `<div class="wo-card-add">+ Add</div>`}
+        </button>`;
+      }).join("")}</div>`;
+
+  mount.innerHTML = `<section class="watch-order-section">
+    <div class="wo-header">
+      <div>
+        <div class="wo-title">Watch Order</div>
+        <div class="wo-subtitle">${escapeHtml(currentFranchiseTitle)} — Complete Guide</div>
+      </div>
+      ${toggleHtml}
+    </div>
+    ${cards}
+  </section>`;
 }
 function renderRatingComponent(id, containerId) {
   const labels = { 1: "Appalling", 2: "Horrible", 3: "Very Bad", 4: "Bad", 5: "Average", 6: "Fine", 7: "Good", 8: "Very Good", 9: "Great", 10: "Masterpiece" };
