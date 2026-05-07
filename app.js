@@ -986,6 +986,20 @@ function renderQuickActionCard(anime, source) {
   const title = anime.title && anime.title.english ? anime.title.english : anime.title.romaji;
   const meta = [anime.averageScore ? `Score ${anime.averageScore}` : "", anime.episodes ? formatCount(anime.episodes, "episode") : "Episode total unknown"].filter(Boolean).join(" • ");
   const genreTag = anime.genres && anime.genres[0] ? `<span class="discover-card__genre-tag">${escapeHtml(anime.genres[0])}</span>` : "";
+
+  // Status dot color for the add button when already in library
+  const STATUS_DOT_COLORS = {
+    watching: "#3b9eff", completed: "#22c55e", queued: "#f59e0b",
+    "plan-to-watch": "#a78bfa", dropped: "#ef4444", paused: "#fbbf24", untracked: "#50506a"
+  };
+
+  // Play icon SVG
+  const playIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>`;
+  // Plus icon SVG
+  const plusIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`;
+  // Remove icon SVG
+  const removeIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
+
   return `<article class="discover-card">
     <div class="discover-card__media">
       ${anime.coverImage && anime.coverImage.large ? `<img src="${escapeHtml(anime.coverImage.large)}" alt="${escapeHtml(title)}">` : ""}
@@ -996,7 +1010,15 @@ function renderQuickActionCard(anime, source) {
       <div class="discover-card__meta">${escapeHtml(meta)}</div>
       <div class="discover-card__meta-row">${anime.status ? `<span class="chip-chip">${escapeHtml(String(anime.status).replaceAll("_", " "))}</span>` : ""}</div>
       <div class="card-actions">
-        ${existing ? `<button type="button" class="btn-watch-now" data-action="open-watch" data-id="${existing.id}">▶ Watch</button><button type="button" class="btn-remove" data-action="remove-from-library" data-id="${existing.id}">Remove</button>` : `<button type="button" class="btn-watch-now" data-action="quick-watch-now" data-source="${source}" data-id="${anime.id}">▶ Watch Now</button><div class="card-actions__picker-wrap"><button type="button" class="btn-add" data-action="open-status-picker" data-source="${source}" data-id="${anime.id}">+ Add</button>${renderInlineStatusPicker(source, anime.id)}</div>`}
+        ${existing
+          ? `<button type="button" class="btn-icon btn-icon--primary" data-action="open-watch" data-id="${existing.id}" title="Watch Now" aria-label="Watch Now">${playIcon}</button>
+             <button type="button" class="btn-icon btn-icon--ghost btn-icon--added" data-action="open-add-modal" data-source="${source}" data-id="${anime.id}" title="${escapeHtml(STATUS_LABELS[existing.status] || "In Library")}" aria-label="Update status">
+               ${plusIcon}
+               <span class="btn-icon__dot" style="background:${STATUS_DOT_COLORS[existing.status] || "#50506a"}"></span>
+             </button>`
+          : `<button type="button" class="btn-icon btn-icon--primary" data-action="quick-watch-now" data-source="${source}" data-id="${anime.id}" title="Watch Now" aria-label="Watch Now">${playIcon}</button>
+             <button type="button" class="btn-icon btn-icon--ghost" data-action="open-add-modal" data-source="${source}" data-id="${anime.id}" title="Add to List" aria-label="Add to List">${plusIcon}</button>`
+        }
       </div>
     </div>
   </article>`;
@@ -1464,6 +1486,61 @@ function openDetailOverlay(id) { const entry = getEntry(id); if (!entry) return;
 /* MODALS */
 function renderOverlay() {
   if (!uiState.overlay) return "";
+
+  /* ── Add to List modal — centered, not tied to hover state ── */
+  if (uiState.overlay.type === "add-modal") {
+    const source = uiState.overlay.source;
+    const id = uiState.overlay.id;
+    const media = getAniListResultBySource(source, id);
+    if (!media) return "";
+    const title = media.title.english || media.title.romaji;
+    const existing = getEntryByAnimeId(id);
+    const currentStatus = existing ? existing.status : null;
+
+    const STATUS_ICONS = {
+      watching: "▶", completed: "✓", queued: "☰",
+      "plan-to-watch": "🔖", dropped: "✕", paused: "⏸", untracked: "○"
+    };
+    const STATUS_COLORS = {
+      watching: "var(--badge-watching)", completed: "var(--badge-completed)",
+      queued: "var(--badge-queued)", "plan-to-watch": "var(--badge-plan)",
+      dropped: "var(--badge-dropped)", paused: "var(--badge-paused)",
+      untracked: "var(--text3)"
+    };
+
+    const rows = STATUS_OPTIONS.map(status => {
+      const isActive = currentStatus === status;
+      return `<button type="button"
+        class="add-modal__row${isActive ? " add-modal__row--active" : ""}"
+        data-action="quick-add-status"
+        data-source="${source}"
+        data-id="${id}"
+        data-status="${status}">
+        <span class="add-modal__row-icon" style="color:${STATUS_COLORS[status]}">${STATUS_ICONS[status] || "○"}</span>
+        <span class="add-modal__row-label">${escapeHtml(STATUS_LABELS[status])}</span>
+        ${isActive ? `<span class="add-modal__row-check">✓</span>` : ""}
+      </button>`;
+    }).join("");
+
+    return `<div class="overlay" data-action="close-overlay">
+      <div class="add-modal" role="dialog" aria-modal="true" aria-label="Add to list" data-overlay-card>
+        <div class="add-modal__header">
+          <div class="add-modal__cover">
+            ${media.coverImage && media.coverImage.large
+              ? `<img src="${escapeHtml(media.coverImage.large)}" alt="${escapeHtml(title)}">`
+              : ""}
+          </div>
+          <div class="add-modal__info">
+            <div class="add-modal__title">${escapeHtml(title)}</div>
+            <div class="add-modal__sub muted">Choose a status to add to your library</div>
+          </div>
+          <button type="button" class="add-modal__close" data-action="close-overlay" aria-label="Close">✕</button>
+        </div>
+        <div class="add-modal__rows">${rows}</div>
+      </div>
+    </div>`;
+  }
+
   if (uiState.overlay.type === "status-picker") {
     const media = getAniListResultBySource(uiState.overlay.source, uiState.overlay.id); if (!media) return "";
     const title = media.title.english || media.title.romaji;
@@ -2084,8 +2161,15 @@ function handleClick(event) {
   if (action === "toggle-compact") { uiState.compactMode = !uiState.compactMode; document.body.classList.toggle("compact-mode", uiState.compactMode); saveData(); renderApp(); return; }
   if (action === "toggle-reduced-motion") { uiState.reducedMotion = !uiState.reducedMotion; document.body.classList.toggle("reduced-motion", uiState.reducedMotion); saveData(); renderApp(); return; }
   if (action === "open-status-picker") { openStatusPicker(actionTarget.dataset.source, Number(actionTarget.dataset.id)); return; }
+  if (action === "open-add-modal") {
+    const source = actionTarget.dataset.source;
+    const id = Number(actionTarget.dataset.id);
+    const media = getAniListResultBySource(source, id);
+    if (media) { uiState.overlay = { type: "add-modal", source, id }; renderApp(); }
+    return;
+  }
   if (action === "quick-watch-now") { const media = getAniListResultBySource(actionTarget.dataset.source, Number(actionTarget.dataset.id)); if (media) quickWatchNow(media); return; }
-  if (action === "quick-add-status") { event.stopPropagation(); const media = getAniListResultBySource(actionTarget.dataset.source, Number(actionTarget.dataset.id)); if (media) addToLibrary(media, actionTarget.dataset.status); return; }
+  if (action === "quick-add-status") { event.stopPropagation(); const media = getAniListResultBySource(actionTarget.dataset.source, Number(actionTarget.dataset.id)); if (media) { addToLibrary(media, actionTarget.dataset.status); uiState.overlay = null; } return; }
   if (action === "picker-status") { const media = getAniListResultBySource(actionTarget.dataset.source, Number(actionTarget.dataset.id)); if (media) addToLibrary(media, actionTarget.dataset.status); return; }
   if (action === "set-library-filter") { uiState.library.filter = actionTarget.dataset.filter; renderApp(); return; }
   if (action === "browse-mode") { loadBrowse(actionTarget.dataset.mode); return; }
