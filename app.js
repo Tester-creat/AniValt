@@ -1,6 +1,6 @@
 /* RESET */
 const STORAGE_KEY = "anivault_v2";
-const NAV_TABS = ["home", "library", "browse", "search", "stats"];
+const NAV_TABS = ["home", "library", "browse", "search"];
 const STATUS_OPTIONS = [
   "watching",
   "completed",
@@ -25,27 +25,22 @@ const TOAST_TITLES = {
   info: "AniVault",
 };
 const BROWSE_GENRES = [
-  "Action", "Adventure", "Cars", "Comedy", "Dementia", "Demons", "Drama", "Dub", "Ecchi", "Fantasy", "Game", "Harem", "Hentai", "Historical", "Horror", "Josei", "Kids", "Magic", "Martial Arts", "Mecha", "Military", "Music", "Mystery", "Parody", "Police", "Psychological", "Romance", "Samurai", "School", "Sci-Fi", "Seinen", "Shoujo", "Shoujo Ai", "Shounen", "Shounen Ai", "Slice of Life", "Space", "Sports", "Super Power", "Supernatural", "Thriller", "Vampire", "Yaoi", "Yuri", "Isekai", "Mahou Shoujo", "Gourmet", "Workplace", "Suspense", "Noir", "Fortune", "Cyberpunk", "CGDCT", "Idol", "Musical", "Documentary", "News", "Cooking", "pets", "Dancing", "Vehicles", "K两块", "Soap", "Thriller", "Practical", "Gender Bender", "Harem", "Reverse Harem", "Otaku", "Cultural", "Educational", "Engineering", "Fillery"
+  "Action",
+  "Adventure",
+  "Comedy",
+  "Drama",
+  "Fantasy",
+  "Horror",
+  "Mecha",
+  "Mystery",
+  "Psychological",
+  "Romance",
+  "Sci-Fi",
+  "Slice of Life",
+  "Sports",
+  "Supernatural",
+  "Thriller",
 ];
-const GENRE_ALPHABET = {
-  A: ["Action", "Adventure", "Adult", "Animation"],
-  C: ["Cars", "Comedy", "Cooking"],
-  D: ["Dementia", "Demons", "Documentary", "Drama", "Dub"],
-  E: ["Ecchi"],
-  F: ["Fantasy", "Food"],
-  G: ["Game", "Gourmet"],
-  H: ["Harem", "Hentai", "Historical", "Horror"],
-  I: ["Idol", "Isekai"],
-  J: ["Josei"],
-  K: ["Kids"],
-  M: ["Magic", "Mahou Shoujo", "Martial Arts", "Mecha", "Military", "Music", "Mystery"],
-  P: ["Parody", "Police", "Psychological"],
-  R: ["Romance"],
-  S: ["Samurai", "School", "Sci-Fi", "Seinen", "Shoujo", "Shoujo Ai", "Shounen", "Shounen Ai", "Slice of Life", "Space", "Sports", "Super Power", "Supernatural"],
-  T: ["Thriller"],
-  V: ["Vampire"],
-  Y: ["Yaoi", "Yuri"],
-};
 
 const SEARCH_QUERY = `query ($search: String, $page: Int, $perPage: Int) {
   Page(page: $page, perPage: $perPage) {
@@ -125,9 +120,9 @@ const uiState = {
   browse: {
     mode: "seasonal", genre: "Action", title: "This Season",
     subtitle: "", results: [], loading: false, error: "",
-    requestId: 0, initialized: false, page: 1, hasMore: true
+    requestId: 0, initialized: false
   },
-  search: { query: "", results: [], loading: false, error: "", requestId: 0, filters: { yearMin: 0, yearMax: 0, scoreMin: 0, episodesMin: 0, status: "" } },
+  search: { query: "", results: [], loading: false, error: "", requestId: 0 },
   watch: {
     forceFallback: false, sidebarCollapsed: false,
     streamLoaded: false, lastEndedKey: "", episodeGroupIndex: 0,
@@ -137,8 +132,11 @@ const uiState = {
 };
 
 let searchTimer = 0;
+let streamFallbackTimer = 0;
 let completionReturnTimer = 0;
-let homeHeroItems = [];
+
+/* HERO CAROUSEL STATE */
+const heroState = { current: 0, total: 0, timer: null, rafId: null, start: null, dur: 7000 };
 
 /* FULLSCREEN API HELPERS */
 function isFullscreen() {
@@ -439,6 +437,126 @@ function renderMobileTabs() {
   </nav>`;
 }
 
+/* ══ HERO CAROUSEL ══════════════════════════════════════════════ */
+function renderHeroCarousel(entries) {
+  if (!entries.length) return "";
+  const items = entries.slice(0, 5);
+  const slides = items.map((entry, i) => {
+    const title = getDisplayTitle(entry);
+    const bg = entry.banner || entry.cover || "";
+    const progress = getProgressPercent(entry);
+    const genres = (entry.genres || []).slice(0, 3);
+    const nextEp = (entry.episodesWatched || 0) + 1;
+    const totalEp = entry.episodes || "?";
+    return `<div class="hc-slide${i === 0 ? " is-active" : ""}" data-hc-slide="${i}">
+      ${bg ? `<div class="hc-bg" style="background-image:url('${escapeHtml(bg)}')"></div>` : `<div class="hc-bg hc-bg--fallback"></div>`}
+      <div class="hc-overlay"></div>
+      <div class="hc-overlay2"></div>
+      <div class="hc-content">
+        ${genres.length ? `<div class="hc-genres">${genres.map(g => `<span class="hc-genre-pill">${escapeHtml(g)}</span>`).join("")}</div>` : ""}
+        <div class="hc-title">${escapeHtml(title)}</div>
+        <div class="hc-meta-row">
+          ${entry.averageScore ? `<span class="hc-score">★ ${entry.averageScore}</span><span class="hc-sep"></span>` : ""}
+          <span>Ep ${nextEp} / ${totalEp}</span>
+          ${entry.year ? `<span class="hc-sep"></span><span>${entry.year}</span>` : ""}
+          ${entry.language ? `<span class="hc-sep"></span><span class="hc-lang">${String(entry.language).toUpperCase()}</span>` : ""}
+        </div>
+        <div class="hc-progress-track"><div class="hc-progress-fill" style="width:${progress}%"></div></div>
+        <div class="hc-actions">
+          <button type="button" class="hc-btn-primary" data-action="open-watch" data-id="${entry.id}">&#9654; Resume</button>
+          <button type="button" class="hc-btn-secondary" data-action="open-detail" data-id="${entry.id}">Details</button>
+        </div>
+      </div>
+    </div>`;
+  }).join("");
+
+  const dots = items.map((_, i) =>
+    `<div class="hc-dot${i === 0 ? " is-active" : ""}" data-hc-dot="${i}"><div class="hc-dot-progress"></div></div>`
+  ).join("");
+
+  const thumbs = items.length > 1 ? `<div class="hc-thumbs">${items.map((entry, i) => {
+    const bg = entry.cover || entry.banner || "";
+    return `<button type="button" class="hc-thumb${i === 0 ? " is-active" : ""}" data-hc-thumb="${i}" aria-label="${escapeHtml(getDisplayTitle(entry))}">${bg ? `<img src="${escapeHtml(bg)}" alt="">` : ""}</button>`;
+  }).join("")}</div>` : "";
+
+  const navBtns = items.length > 1 ? `<button type="button" class="hc-nav hc-nav--prev" id="hcPrev" aria-label="Previous">&#8249;</button><button type="button" class="hc-nav hc-nav--next" id="hcNext" aria-label="Next">&#8250;</button>` : "";
+
+  return `<div class="hero-carousel" id="heroCarousel">
+    ${slides}
+    ${navBtns}
+    <div class="hc-dots">${dots}</div>
+    ${thumbs}
+  </div>`;
+}
+
+function initHeroCarousel() {
+  const carousel = document.getElementById("heroCarousel");
+  if (!carousel) return;
+  clearInterval(heroState.timer);
+  cancelAnimationFrame(heroState.rafId);
+
+  const slides = Array.from(carousel.querySelectorAll(".hc-slide"));
+  const dots   = Array.from(carousel.querySelectorAll(".hc-dot"));
+  const thumbs = Array.from(carousel.querySelectorAll(".hc-thumb"));
+  heroState.total = slides.length;
+  if (heroState.total <= 1) return;
+
+  function goTo(idx) {
+    slides[heroState.current].classList.remove("is-active");
+    dots[heroState.current]  && dots[heroState.current].classList.remove("is-active");
+    thumbs[heroState.current] && thumbs[heroState.current].classList.remove("is-active");
+    heroState.current = ((idx % heroState.total) + heroState.total) % heroState.total;
+    slides[heroState.current].classList.add("is-active");
+    dots[heroState.current]  && dots[heroState.current].classList.add("is-active");
+    thumbs[heroState.current] && thumbs[heroState.current].classList.add("is-active");
+    dots.forEach(d => { const f = d.querySelector(".hc-dot-progress"); if (f) f.style.width = "0%"; });
+    startProgress();
+  }
+
+  function startProgress() {
+    cancelAnimationFrame(heroState.rafId);
+    heroState.start = performance.now();
+    const fill = dots[heroState.current] && dots[heroState.current].querySelector(".hc-dot-progress");
+    (function step(now) {
+      if (!fill) return;
+      const pct = Math.min(100, ((now - heroState.start) / heroState.dur) * 100);
+      fill.style.width = pct + "%";
+      if (pct < 100) heroState.rafId = requestAnimationFrame(step);
+    })(performance.now());
+  }
+
+  function startAuto() {
+    clearInterval(heroState.timer);
+    heroState.timer = setInterval(() => goTo(heroState.current + 1), heroState.dur);
+  }
+
+  const prevBtn = document.getElementById("hcPrev");
+  const nextBtn = document.getElementById("hcNext");
+  if (prevBtn) prevBtn.addEventListener("click", e => { e.stopPropagation(); clearInterval(heroState.timer); goTo(heroState.current - 1); startAuto(); });
+  if (nextBtn) nextBtn.addEventListener("click", e => { e.stopPropagation(); clearInterval(heroState.timer); goTo(heroState.current + 1); startAuto(); });
+
+  dots.forEach(dot => dot.addEventListener("click", e => {
+    e.stopPropagation();
+    clearInterval(heroState.timer);
+    goTo(parseInt(dot.dataset.hcDot, 10));
+    startAuto();
+  }));
+
+  thumbs.forEach(thumb => thumb.addEventListener("click", e => {
+    const idx = parseInt(thumb.dataset.hcThumb, 10);
+    if (idx !== heroState.current) {
+      e.stopPropagation();
+      clearInterval(heroState.timer);
+      goTo(idx);
+      startAuto();
+    }
+  }));
+
+  heroState.current = 0;
+  goTo(0);
+  startAuto();
+}
+
 /* HOME */
 function getLibraryStats() {
   return getAnimeEntries().reduce((stats, entry) => {
@@ -519,9 +637,9 @@ function renderContinueCard(entry) {
   const image = entry.banner || entry.cover;
   const poster = entry.cover || entry.banner;
   return `<button type="button" class="continue-card" data-action="open-watch" data-id="${entry.id}">
-    <div class="continue-card__bg">${image ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(getDisplayTitle(entry))}" loading="lazy">` : ""}</div>
+    <div class="continue-card__bg">${image ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(getDisplayTitle(entry))}">` : ""}</div>
     <div class="continue-card__content">
-      <div class="continue-card__poster">${poster ? `<img src="${escapeHtml(poster)}" alt="${escapeHtml(getDisplayTitle(entry))}" loading="lazy">` : ""}</div>
+      <div class="continue-card__poster">${poster ? `<img src="${escapeHtml(poster)}" alt="${escapeHtml(getDisplayTitle(entry))}">` : ""}</div>
       <div class="continue-card__meta">
         <div class="continue-card__title">${escapeHtml(getDisplayTitle(entry))}</div>
         <div class="continue-card__progress">${escapeHtml(formatEpisodeLabel(entry))}</div>
@@ -543,7 +661,7 @@ function renderPosterCard(entry, options = {}) {
   const showScoreChip = context === "grid" || context === "completed";
   const scoreChip = showScoreChip && entry.rating ? `<span class="chip-chip">&#11088; ${entry.rating} - ${escapeHtml(getRatingLabel(entry.rating))}</span>` : "";
   return `<button type="button" class="poster-card ${context === "grid" ? "poster-card--grid" : ""}" data-action="${action}" data-id="${entry.id}">
-    <div class="poster-card__media">${entry.cover ? `<img src="${escapeHtml(entry.cover)}" alt="${escapeHtml(getDisplayTitle(entry))}" loading="lazy">` : ""}</div>
+    <div class="poster-card__media">${entry.cover ? `<img src="${escapeHtml(entry.cover)}" alt="${escapeHtml(getDisplayTitle(entry))}">` : ""}</div>
     <div class="poster-card__body">
       <div class="poster-card__meta-row">${badge}${entry.averageScore ? `<span class="chip-chip">Score ${entry.averageScore}</span>` : ""}</div>
       <div class="poster-card__title">${escapeHtml(getDisplayTitle(entry))}</div>${scoreChip}
@@ -576,134 +694,6 @@ function renderStatsStrip() {
     <div class="stat-chip"><div class="stat-chip__label">Episodes watched</div><div class="stat-chip__value">${stats.episodesWatched}</div></div>
   </section>`;
 }
-async function fetchHomeHero() {
-  if (homeHeroItems.length > 0) return;
-  try {
-    const data = await fetchAniList(BROWSE_QUERY, { page: 1, perPage: 14, sort: ["POPULARITY_DESC"] });
-    const items = (data && data.Page && data.Page.media) || [];
-    const withBanner = items.filter((m) => m.bannerImage);
-    homeHeroItems = (withBanner.length >= 3 ? withBanner : items).slice(0, 6);
-    if (homeHeroItems.length > 0) queueRender();
-  } catch (e) {}
-}
-
-/* ── HERO CAROUSEL RENDER HELPERS ──────────────────────────── */
-function _buildCarouselDots(count) {
-  return Array.from({ length: count }, (_, i) =>
-    `<button type="button" class="hero-carousel__dot${i === 0 ? " is-active" : ""}" role="tab" aria-selected="${i === 0}" aria-label="Slide ${i + 1}" data-carousel-dot="${i}"></button>`
-  ).join("");
-}
-
-function _buildCarouselShell(slidesHtml, dotCount) {
-  const showArrows = dotCount > 1;
-  return `
-  <div class="hero-carousel" id="heroCarousel" aria-roledescription="carousel" aria-label="Featured anime">
-    <div class="hero-carousel__track" id="heroTrack" aria-live="off">${slidesHtml}</div>
-    ${showArrows ? `<button type="button" class="hero-carousel__arrow hero-carousel__arrow--prev" id="heroCarouselPrev" aria-label="Previous slide">&#8249;</button><button type="button" class="hero-carousel__arrow hero-carousel__arrow--next" id="heroCarouselNext" aria-label="Next slide">&#8250;</button>` : ""}
-    ${dotCount > 1 ? `<div class="hero-carousel__dots" id="heroCarouselDots" role="tablist" aria-label="Slide indicators">${_buildCarouselDots(dotCount)}</div>` : ""}
-    <div class="hero-carousel__progress-bar" id="heroProgressBar"></div>
-  </div>`;
-}
-
-function _buildAniListSlide(media, index, total) {
-  const title = (media.title && (media.title.english || media.title.romaji)) || "Featured Anime";
-  const bgImg = media.bannerImage || (media.coverImage && media.coverImage.large) || "";
-  const bgStyle = bgImg ? `style="background-image:url('${escapeHtml(bgImg)}')"` : "";
-  const genres = Array.isArray(media.genres) ? media.genres.slice(0, 3).join(" • ") : "";
-  const year = media.seasonYear ? String(media.seasonYear) : "";
-  const eps = media.episodes ? `${media.episodes} eps` : "";
-  const score = media.averageScore ? `★ ${(media.averageScore / 10).toFixed(1)}` : "";
-  const subtitle = [genres, year, eps, score].filter(Boolean).join(" • ");
-  const existing = getEntryByAnimeId(media.id);
-  const watchBtn = existing
-    ? `<button type="button" class="hero-cta hero-cta--primary" data-action="open-watch" data-id="${existing.id}">▶ Continue Watching</button>`
-    : `<button type="button" class="hero-cta hero-cta--primary" data-action="quick-watch-now" data-source="hero" data-id="${media.id}">▶ Watch Now</button>`;
-  const addBtn = existing
-    ? ""
-    : `<button type="button" class="hero-cta hero-cta--secondary" data-action="open-status-picker" data-source="hero" data-id="${media.id}">＋ Add to Library</button>`;
-  return `<div class="hero-carousel__slide${index === 0 ? " is-active" : ""}" role="group" aria-roledescription="slide" aria-label="${index + 1} of ${total}" data-carousel-index="${index}">
-    <div class="hero-carousel__bg" ${bgStyle}></div>
-    <div class="hero-section__overlay"></div>
-    <div class="hero-carousel__content">
-      <div class="hero-section__eyebrow">Trending Now</div>
-      <h1 class="hero-section__title">${escapeHtml(title)}</h1>
-      <div class="hero-section__subtitle">${escapeHtml(subtitle)}</div>
-      <div class="hero-section__actions">${watchBtn}${addBtn}</div>
-    </div>
-  </div>`;
-}
-
-function _buildLibrarySlide(entry, index, total) {
-  const bgImg = entry.banner || entry.cover || "";
-  const bgStyle = bgImg ? `style="background-image:url('${escapeHtml(bgImg)}')"` : "";
-  const genreTags = entry.genres.slice(0, 3).join(" • ");
-  const year = entry.year ? String(entry.year) : "";
-  const episodeCount = entry.episodes ? `${entry.episodes} eps` : "";
-  const score = entry.averageScore ? `★ ${(entry.averageScore / 10).toFixed(1)}` : "";
-  const subtitle = [genreTags, year, episodeCount, score].filter(Boolean).join(" • ");
-  const watchBtn = `<button type="button" class="hero-cta hero-cta--primary" data-action="open-watch" data-id="${entry.id}">▶ Watch Now</button>`;
-  const addBtn = getEntry(entry.id)
-    ? ""
-    : `<button type="button" class="hero-cta hero-cta--secondary" data-action="open-detail" data-id="${entry.id}">＋ Add to Library</button>`;
-  return `<div class="hero-carousel__slide${index === 0 ? " is-active" : ""}" role="group" aria-roledescription="slide" aria-label="${index + 1} of ${total}" data-carousel-index="${index}">
-    <div class="hero-carousel__bg" ${bgStyle}></div>
-    <div class="hero-section__overlay"></div>
-    <div class="hero-carousel__content">
-      <div class="hero-section__eyebrow">${escapeHtml(STATUS_LABELS[entry.status] || "Featured")}</div>
-      <h1 class="hero-section__title">${escapeHtml(getDisplayTitle(entry))}</h1>
-      <div class="hero-section__subtitle">${escapeHtml(subtitle)}</div>
-      <div class="hero-section__actions">${watchBtn}${addBtn}</div>
-    </div>
-  </div>`;
-}
-
-function renderHero() {
-  const allEntries = getAnimeEntries();
-
-  /* ── New user path: show trending carousel from AniList ── */
-  if (allEntries.length === 0) {
-    if (homeHeroItems.length > 0) {
-      const slidesHtml = homeHeroItems.map((m, i) => _buildAniListSlide(m, i, homeHeroItems.length)).join("");
-      return _buildCarouselShell(slidesHtml, homeHeroItems.length);
-    }
-    fetchHomeHero();
-    return `
-    <section class="hero-section hero-section--placeholder">
-      <div class="hero-section__overlay"></div>
-      <div class="hero-section__content">
-        <div class="hero-section__eyebrow">Welcome to AniVault</div>
-        <h1 class="hero-section__title">Your Private Anime Stream</h1>
-        <div class="hero-section__subtitle">Search and add anime to your library — then stream without leaving the page.</div>
-        <div class="hero-section__actions">
-          <button type="button" class="hero-cta hero-cta--primary" data-action="tab" data-tab="browse">Browse Anime</button>
-          <button type="button" class="hero-cta hero-cta--secondary" data-action="tab" data-tab="search">Search</button>
-        </div>
-      </div>
-    </section>`;
-  }
-
-  /* ── Library user path: carousel from their library ── */
-  const recentlyWatched = allEntries
-    .filter((entry) => entry.lastWatched > 0)
-    .sort((a, b) => (b.lastWatched || 0) - (a.lastWatched || 0));
-  let featuredEntry = recentlyWatched[0] || null;
-  if (!featuredEntry) {
-    const watching = allEntries.filter((e) => e.status === "watching");
-    featuredEntry = watching.length > 0
-      ? watching[Math.floor(Math.random() * watching.length)]
-      : allEntries[0];
-  }
-  if (!featuredEntry) return "";
-
-  const pool = allEntries
-    .filter((e) => e.id !== featuredEntry.id && (e.banner || e.cover))
-    .sort((a, b) => (b.lastWatched || b.dateAdded || 0) - (a.lastWatched || a.dateAdded || 0))
-    .slice(0, 5);
-  const carouselEntries = [featuredEntry, ...pool];
-  const slidesHtml = carouselEntries.map((e, i) => _buildLibrarySlide(e, i, carouselEntries.length)).join("");
-  return _buildCarouselShell(slidesHtml, carouselEntries.length);
-}
-
 function renderHome() {
   const continueWatching = getContinueWatchingEntries();
   const queueEntries = getEntriesByStatus("queued");
@@ -729,8 +719,8 @@ function renderHome() {
   }
   return `
   <div class="page page--home">
-    ${renderHero()}
-    <section class="section">
+    ${renderHeroCarousel(continueWatching)}
+    <section class="section section--continue">
       <div class="section__head">
         <div class="section__copy">
           <div class="section__title">Continue Watching</div>
@@ -777,8 +767,8 @@ function renderLibrary() {
         </div>
       </div>
       <div class="toolbar-grid">
-        <input id="librarySearchInput" class="input" type="search" placeholder="Filter your library" aria-label="Filter library by title, genre, or notes" value="${escapeHtml(uiState.library.query)}">
-        <select id="librarySortSelect" class="select" aria-label="Sort library entries">
+        <input id="librarySearchInput" class="input" type="search" placeholder="Filter your library" value="${escapeHtml(uiState.library.query)}">
+        <select id="librarySortSelect" class="select">
           <option value="default" ${uiState.library.sort === "default" ? "selected" : ""}>Default</option>
           <option value="alpha" ${uiState.library.sort === "alpha" ? "selected" : ""}>A-Z</option>
           <option value="alpha-desc" ${uiState.library.sort === "alpha-desc" ? "selected" : ""}>Z-A</option>
@@ -859,42 +849,18 @@ async function loadBrowse(mode, genre = uiState.browse.genre) {
   let title = "This Season", subtitle = `${season.charAt(0)}${season.slice(1).toLowerCase()} releases, sorted by popularity.`;
   if (mode === "top") { variables = { page: 1, perPage: 30, sort: ["SCORE_DESC"] }; title = "Top Rated"; subtitle = "High scoring anime from AniList."; }
   else if (mode === "popular") { variables = { page: 1, perPage: 30, sort: ["POPULARITY_DESC"] }; title = "Most Popular"; subtitle = "Heavy hitters with the biggest audiences."; }
-  else if (mode === "genre") { variables = { page: uiState.browse.page + 1, perPage: 30, sort: ["SCORE_DESC"], genre }; title = `${genre || "All"} Highlights`; subtitle = `Top rated picks. Page ${uiState.browse.page + 1}.`; }
+  else if (mode === "genre") { variables = { page: 1, perPage: 30, sort: ["SCORE_DESC"], genre }; title = `${genre} Highlights`; subtitle = `Top rated picks in ${genre}.`; }
   else { variables = { page: 1, perPage: 30, sort: ["POPULARITY_DESC"], season, seasonYear }; }
   try {
     const data = await fetchAniList(BROWSE_QUERY, variables);
     if (requestId !== uiState.browse.requestId) return;
     uiState.browse.results = data.Page.media.map(adaptAniListMedia);
     uiState.browse.title = title; uiState.browse.subtitle = subtitle;
-    uiState.browse.loading = false; uiState.browse.initialized = true; uiState.browse.page = 1; uiState.browse.hasMore = data.Page.media.length === 30; queueRender();
+    uiState.browse.loading = false; uiState.browse.initialized = true; queueRender();
   } catch (error) {
     if (requestId !== uiState.browse.requestId) return;
     uiState.browse.loading = false; uiState.browse.error = error.message; queueRender();
     showToast("AniList browse request failed. Try again when you are online.", "error");
-  }
-}
-async function loadBrowseMore() {
-  if (uiState.browse.loading || !uiState.browse.hasMore) return;
-  const mode = uiState.browse.mode, genre = uiState.browse.genre;
-  const requestId = ++uiState.browse.requestId;
-  const season = getSeasonFromDate(new Date()), seasonYear = new Date().getFullYear();
-  const nextPage = uiState.browse.page + 1;
-  let variables = { page: nextPage, perPage: 30, sort: ["POPULARITY_DESC"] };
-  if (mode === "top") variables = { page: nextPage, perPage: 30, sort: ["SCORE_DESC"] };
-  else if (mode === "genre") variables = { page: nextPage, perPage: 30, sort: ["SCORE_DESC"], genre };
-  else variables = { page: nextPage, perPage: 30, sort: ["POPULARITY_DESC"], season, seasonYear };
-  uiState.browse.loading = true; uiState.browse.error = ""; queueRender();
-  try {
-    const data = await fetchAniList(BROWSE_QUERY, variables);
-    if (requestId !== uiState.browse.requestId) return;
-    const newResults = data.Page.media.map(adaptAniListMedia);
-    if (newResults.length === 0) { uiState.browse.hasMore = false; }
-    else { uiState.browse.results = [...uiState.browse.results, ...newResults]; uiState.browse.page = nextPage; }
-    uiState.browse.loading = false; queueRender();
-    showToast(`Loaded page ${nextPage}`, "info");
-  } catch (error) {
-    if (requestId !== uiState.browse.requestId) return;
-    uiState.browse.loading = false; uiState.browse.error = error.message; queueRender();
   }
 }
 function renderDiscoverCard(media, source) {
@@ -902,7 +868,7 @@ function renderDiscoverCard(media, source) {
   const title = media.title.english || media.title.romaji;
   const meta = [media.averageScore ? `Score ${media.averageScore}` : "", media.episodes ? formatCount(media.episodes, "episode") : "Episode total unknown"].filter(Boolean).join(" • ");
   return `<article class="discover-card">
-    <div class="discover-card__media">${media.coverImage.large ? `<img src="${escapeHtml(media.coverImage.large)}" alt="${escapeHtml(title)}" loading="lazy">` : ""}</div>
+    <div class="discover-card__media">${media.coverImage.large ? `<img src="${escapeHtml(media.coverImage.large)}" alt="${escapeHtml(title)}">` : ""}</div>
     <div class="discover-card__body">
       <div class="discover-card__title">${escapeHtml(title)}</div>
       <div class="discover-card__meta">${escapeHtml(meta)}</div>
@@ -926,7 +892,7 @@ function renderQuickActionCard(anime, source) {
   const title = anime.title && anime.title.english ? anime.title.english : anime.title.romaji;
   const meta = [anime.averageScore ? `Score ${anime.averageScore}` : "", anime.episodes ? formatCount(anime.episodes, "episode") : "Episode total unknown"].filter(Boolean).join(" • ");
   return `<article class="discover-card">
-    <div class="discover-card__media">${anime.coverImage && anime.coverImage.large ? `<img src="${escapeHtml(anime.coverImage.large)}" alt="${escapeHtml(title)}" loading="lazy">` : ""}</div>
+    <div class="discover-card__media">${anime.coverImage && anime.coverImage.large ? `<img src="${escapeHtml(anime.coverImage.large)}" alt="${escapeHtml(title)}">` : ""}</div>
     <div class="discover-card__body">
       <div class="discover-card__title">${escapeHtml(title)}</div>
       <div class="discover-card__meta">${escapeHtml(meta)}</div>
@@ -940,7 +906,6 @@ function renderQuickActionCard(anime, source) {
 function renderBrowseCard(anime) { return renderQuickActionCard(anime, "browse"); }
 function renderSearchCard(anime) { return renderQuickActionCard(anime, "search"); }
 function renderBrowse() {
-  const alphabetLetters = Object.keys(GENRE_ALPHABET).map(letter => `<button type="button" class="chip" data-action="browse-initial" data-initial="${letter}">${letter}</button>`).join("") + `<button type="button" class="chip" data-action="browse-initial" data-initial="ALL">ALL</button>`;
   return `
   <div class="page page--browse">
     <div class="page-hero"><div class="page-title">Browse AniList</div><div class="page-subtitle">Seasonal picks, genres, top rated favorites, and audience hits.</div></div>
@@ -952,16 +917,8 @@ function renderBrowse() {
             return `<button type="button" class="chip ${active}" data-action="browse-mode" data-mode="${mode}">${label}</button>`;
           }).join("")}
         </div>
-      </div>
-      <div class="genre-picker">
-        <input type="text" class="input" id="genreSearchInput" placeholder="Search genre by name..." aria-label="Search genre by name" data-action="genre-search">
-        <select class="select" id="genreSelect" aria-label="Select genre to browse" data-action="browse-genre-select">
-          <option value="">Select Genre...</option>
-          ${BROWSE_GENRES.map(g => `<option value="${g}" ${uiState.browse.genre === g ? "selected" : ""}>${g}</option>`).join("")}
-        </select>
-        <div class="alphabet-nav">${alphabetLetters}</div>
         <div class="genre-pills">
-          ${BROWSE_GENRES.slice(0, 20).map((genre) => {
+          ${BROWSE_GENRES.map((genre) => {
             const active = uiState.browse.mode === "genre" && uiState.browse.genre === genre ? "is-active" : "";
             return `<button type="button" class="chip ${active}" data-action="browse-genre" data-genre="${genre}">${genre}</button>`;
           }).join("")}
@@ -969,7 +926,7 @@ function renderBrowse() {
       </div>
       <div class="status-line">${escapeHtml(uiState.browse.title)}${uiState.browse.subtitle ? ` - ${escapeHtml(uiState.browse.subtitle)}` : ""}</div>
     </section>
-    ${uiState.browse.loading ? renderEmptyState("...", "Loading AniList results", "AniVault is pulling the latest browse results.") : uiState.browse.error ? renderEmptyState("!", "Browse is offline right now", uiState.browse.error) : uiState.browse.results.length ? `<section class="browse-results discover-grid">${uiState.browse.results.map((media) => renderBrowseCard(media)).join("")}</section>${uiState.browse.hasMore ? `<div style="text-align:center;padding:20px;"><button type="button" class="action-button" data-action="browse-load-more" ${uiState.browse.loading ? "disabled" : ""}>${uiState.browse.loading ? "Loading..." : "Load More"}</button></div>` : `<div class="muted" style="text-align:center;padding:20px;">No more results</div>`}` : renderEmptyState("0", "No results yet", "Choose a browse mode to load anime from AniList.")}
+    ${uiState.browse.loading ? renderEmptyState("...", "Loading AniList results", "AniVault is pulling the latest browse results.") : uiState.browse.error ? renderEmptyState("!", "Browse is offline right now", uiState.browse.error) : uiState.browse.results.length ? `<section class="browse-results discover-grid">${uiState.browse.results.map((media) => renderBrowseCard(media)).join("")}</section>` : renderEmptyState("0", "No results yet", "Choose a browse mode to load anime from AniList.")}
   </div>`;
 }
 
@@ -999,94 +956,28 @@ async function runAniListSearch(query) {
     showToast("AniList search failed. Check your connection and try again.", "error");
   }
 }
-function renderStats() {
-  const entries = getAnimeEntries();
-  const totalAnime = entries.length;
-  const watching = entries.filter(e => e.status === "watching").length;
-  const completed = entries.filter(e => e.status === "completed").length;
-  const queued = entries.filter(e => e.status === "queued" || e.status === "plan-to-watch").length;
-  const totalEpisodesWatched = entries.reduce((sum, e) => sum + (e.episodesWatched || 0), 0);
-  const totalMinutesWatched = entries.reduce((sum, e) => sum + ((e.episodesWatched || 0) * (episodeCache[e.anilistId]?.duration || 24)), 0);
-  const hoursWatched = Math.round(totalMinutesWatched / 60);
-  const daysWatched = Math.round(hoursWatched / 24);
-  const avgScore = entries.filter(e => e.rating > 0).reduce((sum, e, _, arr) => sum + e.rating / arr.length, 0);
-  const genreCounts = {};
-  entries.forEach(e => (e.genres || []).forEach(g => { genreCounts[g] = (genreCounts[g] || 0) + 1; }));
-  const topGenres = Object.entries(genreCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
-  return `
-  <div class="page page--stats">
-    <div class="page-hero"><div class="page-title">Watch Statistics</div><div class="page-subtitle">Your viewing habits, all stored locally.</div></div>
-    <div class="stats-grid">
-      <div class="stat-card"><div class="stat-value">${totalAnime}</div><div class="stat-label">Anime in Library</div></div>
-      <div class="stat-card"><div class="stat-value">${watching}</div><div class="stat-label">Currently Watching</div></div>
-      <div class="stat-card"><div class="stat-value">${completed}</div><div class="stat-label">Completed</div></div>
-      <div class="stat-card"><div class="stat-value">${queued}</div><div class="stat-label">In Queue</div></div>
-      <div class="stat-card"><div class="stat-value">${totalEpisodesWatched}</div><div class="stat-label">Episodes Watched</div></div>
-      <div class="stat-card"><div class="stat-value">${hoursWatched}</div><div class="stat-label">Hours Watched</div></div>
-    </div>
-    ${entries.length > 0 ? `
-    <div class="stats-section">
-      <div class="stats-section-title">Top Genres</div>
-      <div class="genre-bar-list">
-        ${topGenres.map(([genre, count]) => `<div class="genre-bar-item"><span class="genre-name">${genre}</span><div class="genre-bar"><div class="genre-bar-fill" style="width:${(count / totalAnime) * 100}%"></div></div><span class="genre-count">${count}</span></div>`).join("")}
-      </div>
-    </div>
-    <div class="stats-section">
-      <div class="stats-section-title">Average Rating</div>
-      <div class="rating-display">${avgScore > 0 ? avgScore.toFixed(1) + " / 10" : "No ratings yet"}</div>
-    </div>` : ""}
-  </div>`;
-}
 function renderSearch() {
   const libraryMatches = getSearchLibraryMatches();
-  const f = uiState.search.filters;
-  const filteredResults = uiState.search.results.filter(m => {
-    if (f.yearMin && (!m.seasonYear || m.seasonYear < f.yearMin)) return false;
-    if (f.yearMax && (!m.seasonYear || m.seasonYear > f.yearMax)) return false;
-    if (f.scoreMin && (!m.averageScore || m.averageScore < f.scoreMin)) return false;
-    if (f.episodesMin && (!m.episodes || m.episodes < f.episodesMin)) return false;
-    if (f.status && m.status !== f.status) return false;
-    return true;
-  });
-  const totalFiltered = filteredResults.length, totalResults = uiState.search.results.length;
   return `
   <div class="page page--search">
     <section class="search-hero">
       <div class="page-title">Search AniList</div>
       <div class="page-subtitle">Find something new, then add it straight into your private library.</div>
-      <input id="searchPageInput" class="input search-hero__input" type="search" placeholder="Search anime titles" aria-label="Search anime titles" value="${escapeHtml(uiState.search.query)}">
+      <input id="searchPageInput" class="input search-hero__input" type="search" placeholder="Search anime titles" value="${escapeHtml(uiState.search.query)}">
     </section>
     <div class="search-layout">
-      <aside class="search-filters" aria-label="Search filters">
-        <div class="filter-section">
-          <div class="filter-title">Year</div>
-          <div class="filter-range"><input type="number" class="input filter-input" placeholder="Min" value="${uiState.search.filters.yearMin || ""}" data-filter="yearMin" min="1990" max="2026"><span>–</span><input type="number" class="input filter-input" placeholder="Max" value="${uiState.search.filters.yearMax || ""}" data-filter="yearMax" min="1990" max="2026"></div>
-        </div>
-        <div class="filter-section">
-          <div class="filter-title">Score</div>
-          <div class="filter-range"><input type="number" class="input filter-input" placeholder="Min" value="${uiState.search.filters.scoreMin || ""}" data-filter="scoreMin" min="60" max="100" step="5"></div>
-        </div>
-        <div class="filter-section">
-          <div class="filter-title">Episodes</div>
-          <div class="filter-range"><input type="number" class="input filter-input" placeholder="Min" value="${uiState.search.filters.episodesMin || ""}" data-filter="episodesMin" min="1"></div>
-        </div>
-        <div class="filter-section">
-          <div class="filter-title">Status</div>
-          <div class="filter-chips">${["", "RELEASING", "FINISHED", "NOT_YET_RELEASED"].map(s => `<button type="button" class="chip ${uiState.search.filters.status === s ? "is-active" : ""}" data-filter="status" data-value="${s}">${s || "All"}</button>`).join("")}</div>
-        </div>
-        <button type="button" class="action-button" data-action="clear-filters" style="width:100%;margin-top:8px;">Clear Filters</button>
-      </aside>
-      <section class="section">
-        <div class="section__head">
-          <div class="section__copy"><div class="section__title">AniList Results${totalFiltered !== totalResults ? ` (${totalFiltered}/${totalResults})` : ""}</div><div class="section__sub">Add fresh results directly into AniVault.</div></div>
-        </div>
-        ${uiState.search.loading ? renderEmptyState("...", "Searching AniList", "AniVault is looking for matching anime.") : uiState.search.error ? renderEmptyState("!", "Search is offline right now", uiState.search.error) : uiState.search.query.trim().length < 2 ? renderEmptyState("GO", "Search AniList", "Type at least two characters to load AniList results.") : filteredResults.length ? `<div class="browse-results">${filteredResults.map((media) => renderSearchCard(media)).join("")}</div>` : renderEmptyState("0", "No results match filters", "Try adjusting your filters.")}
-      </section>
       <section class="section">
         <div class="section__head">
           <div class="section__copy"><div class="section__title">Search in My Library</div><div class="section__sub">Local matches update instantly as you type.</div></div>
+          ${renderScrollControls("searchLibraryRow", libraryMatches.length > 3)}
         </div>
-        ${libraryMatches.length ? `<div class="browse-results">${libraryMatches.map((entry) => renderSearchCard({ id: entry.id, title: { romaji: entry.title, english: entry.titleEnglish }, coverImage: { large: entry.cover }, episodes: entry.episodes, averageScore: entry.averageScore, status: entry.status })).join("")}</div>` : renderEmptyState("MY", "Nothing in your library matches yet", uiState.search.query.trim() ? "Try a different title, genre, or note keyword." : "Start typing to search your saved anime first.")}
+        ${libraryMatches.length ? `<div class="media-row"><div class="media-row__viewport" id="searchLibraryRow" data-row-track="searchLibraryRow"><div class="media-row__track">${libraryMatches.map((entry) => renderSearchCard({ id: entry.id, title: { romaji: entry.title, english: entry.titleEnglish }, coverImage: { large: entry.cover }, episodes: entry.episodes, averageScore: entry.averageScore, status: entry.status })).join("")}</div></div></div>` : renderEmptyState("MY", "Nothing in your library matches yet", uiState.search.query.trim() ? "Try a different title, genre, or note keyword." : "Start typing to search your saved anime first.")}
+      </section>
+      <section class="section">
+        <div class="section__head">
+          <div class="section__copy"><div class="section__title">AniList Results</div><div class="section__sub">Add fresh results directly into AniVault.</div></div>
+        </div>
+        ${uiState.search.loading ? renderEmptyState("...", "Searching AniList", "AniVault is looking for matching anime.") : uiState.search.error ? renderEmptyState("!", "Search is offline right now", uiState.search.error) : uiState.search.query.trim().length < 2 ? renderEmptyState("GO", "Search AniList", "Type at least two characters to load AniList results.") : uiState.search.results.length ? `<div class="browse-results">${uiState.search.results.map((media) => renderSearchCard(media)).join("")}</div>` : renderEmptyState("0", "No AniList results found", "Try a different spelling or a shorter search term.")}
       </section>
     </div>
   </div>`;
@@ -1110,82 +1001,15 @@ function getGroupForEpisode(episode, groups) {
 }
 
 /* WATCH VIEW */
-// STREAM_PROVIDERS — Modular streaming provider registry.
-//
-// Schema per provider:
-//   name     — display name shown in the UI and toast notifications
-//   active   — set false to disable without removing the config entry
-//   idType   — "anilist" (numeric AniList media ID) or "slug" (title-derived)
-//   buildUrl — (entry, ep, lang) => embed URL string; lang is "sub" | "dub"
-//   notes    — inline docs: URL pattern, known limitations, verification status
-//
-// HOW TO ADD/REMOVE A PROVIDER:
-//   • Add a new object to the array — the app picks it up automatically.
-//   • Set active: false to soft-disable without deleting the config.
-//   • The fallback loop cycles through active providers in order.
-//   • Provider 0 is always tried first.
-// ─────────────────────────────────────────────────────────────────────────────
 const STREAM_PROVIDERS = [
-  {
-    // URL: https://megaplay.buzz/stream/ani/{anilistId}/{episode}/{lang}
-    // lang values: "sub" | "dub"
-    // Status: CONFIRMED WORKING — primary provider
-    name: "MegaPlay",
-    active: true,
-    idType: "anilist",
-    buildUrl: (entry, ep, lang) =>
-      `https://megaplay.buzz/stream/ani/${entry.anilistId}/${ep}/${lang}`,
-    notes: "Confirmed working. AniList ID-based. Supports sub/dub via lang param.",
-  },
-  {
-    // URL: https://vidlink.pro/anime/{anilistId}/{episode}?primaryColor=7c3aed&secondaryColor=a855f7&iconColor=ffffff&autoplay=true&nextbutton=true
-    // lang: no explicit param — player shows available audio tracks internally
-    // Status: VERIFIED — AniList ID-based, reliable for popular and seasonal titles
-    name: "VidLink",
-    active: true,
-    idType: "anilist",
-    buildUrl: (entry, ep, lang) =>
-      `https://vidlink.pro/anime/${entry.anilistId}/${ep}?primaryColor=7c3aed&secondaryColor=a855f7&iconColor=ffffff&autoplay=true&nextbutton=true`,
-    notes: "AniList ID-based. Themed to match AniVault accent. Reliable for popular series.",
-  },
-  {
-    // URL: https://vidsrc.icu/embed/anime/{anilistId}/{episode}/{dubFlag}
-    // dubFlag: 1 = dub, 0 = sub (numeric boolean)
-    // Status: VERIFIED — AniList ID-based, works on most titles
-    name: "VidSrc",
-    active: true,
-    idType: "anilist",
-    buildUrl: (entry, ep, lang) =>
-      `https://vidsrc.icu/embed/anime/${entry.anilistId}/${ep}/${lang === "dub" ? 1 : 0}`,
-    notes: "AniList ID-based. Dub flag is numeric 0/1. Good fallback option.",
-  },
-  {
-    // URL: https://embed.su/embed/anime/{anilistId}/{episode}
-    // lang: no explicit param — player auto-selects available audio tracks
-    // Status: VERIFIED — anime-focused embed, supports AniList IDs
-    name: "EmbedSU",
-    active: true,
-    idType: "anilist",
-    buildUrl: (entry, ep, lang) =>
-      `https://embed.su/embed/anime/${entry.anilistId}/${ep}`,
-    notes: "Anime-focused. AniList ID-based. Audio track selection inside player.",
-  },
-  // ── REMOVED (non-functional / unverified) ───────────────────────────────
-  // AniPlay (.co): URL pattern /embed/anime/{id}/{ep} — returns 404 for most
-  //   titles; domain inconsistently resolves; removed.
-  // VidStream: speculative /embed/{id}/{ep} — 404 for most titles; removed.
-  // VidCloud: domain does not resolve; CORS block confirmed; removed.
-  // VidNest: CORS block, no iframe embed support; removed.
-  // VidPlus: URL pattern unverified, no public documentation; removed.
-  // AniSuge (.ltd): X-Frame-Options blocks iframe embedding; removed.
-  // AniSuge2 (.to): X-Frame-Options blocks iframe embedding; removed.
-  // HiAnime: redirects to search page, no direct embed URL; removed.
+  { name: "MegaPlay", buildUrl: (entry, ep, lang) => `https://megaplay.buzz/stream/ani/${entry.anilistId}/${ep}/${lang}` },
+  { name: "HiAnime", buildUrl: (entry, ep, lang) => `https://hianime.to/watch/${entry.anilistId.replace('anime/', '')}-${entry.anilistId}?ep=${ep}` },
+  { name: "GogoAnime", buildUrl: (entry, ep, lang) => `https://gogoanime.kiwi/arcade/${entry.anilistId}-episode-${ep}` },
 ];
 
 function buildStreamUrl(entry, episode, language, providerIndex = 0) {
   if (!entry || !entry.anilistId) return "";
   const provider = STREAM_PROVIDERS[providerIndex] || STREAM_PROVIDERS[0];
-  if (!provider || !provider.active) return "";
   return provider.buildUrl(entry, episode, language);
 }
 function recordWatchTime(id, timestamp = Date.now()) {
@@ -1287,7 +1111,7 @@ function renderEpisodeListHtml(entry, groupIndex) {
     const episodeMeta = cachedEpisodeData.episodes[episodeNumber] || {};
     const episodeName = episodeMeta.name || `Episode ${episodeNumber}`;
     const thumbnail = episodeMeta.thumbnail || "";
-    return `<button type="button" class="ep-row ${isCurrent ? "current" : ""} ${isWatched ? "watched" : ""}" data-action="set-episode" data-ep="${episodeNumber}"><span class="ep-num">${isWatched ? " &#10003; " : ""}${episodeNumber}</span><span class="ep-name">${escapeHtml(episodeName)}</span><span class="ep-dur">${escapeHtml(durationLabel)}</span>${thumbnail ? `<div class="ep-thumbnail-preview"><img src="${escapeHtml(thumbnail)}" alt="${escapeHtml(episodeName)}" loading="lazy"></div>` : ""}</button>`;
+    return `<button type="button" class="ep-row ${isCurrent ? "current" : ""} ${isWatched ? "watched" : ""}" data-action="set-episode" data-ep="${episodeNumber}"><span class="ep-num">${isWatched ? " &#10003; " : ""}${episodeNumber}</span><span class="ep-name">${escapeHtml(episodeName)}</span><span class="ep-dur">${escapeHtml(durationLabel)}</span>${thumbnail ? `<div class="ep-thumbnail-preview"><img src="${escapeHtml(thumbnail)}" alt="${escapeHtml(episodeName)}"></div>` : ""}</button>`;
   }).join("");
 }
 function paintEpisodeList(id) {
@@ -1388,26 +1212,22 @@ function removeFromLibrary(id) {
 function renderWatchView() {
   const entry = getEntry(currentWatchId); if (!entry) return renderEmptyState("!", "Title missing", "This anime is no longer in your library.");
   const totalEpisodes = getPlayableEpisodeCount(entry);
+  const currentUrl = buildStreamUrl(entry, currentEpisode, entry.language, uiState.watch.currentProvider);
+  const provider = STREAM_PROVIDERS[uiState.watch.currentProvider] || STREAM_PROVIDERS[0];
   const fallbackUrl = `https://hianime.re/search?keyword=${encodeURIComponent(getDisplayTitle(entry))}`;
   const progressLabel = `${entry.episodesWatched || 0} / ${entry.episodes || "?"} episodes watched`;
-  const cachedEpisodeData = episodeCache[entry.anilistId] || { episodes: {} };
-  const currentEpMeta = cachedEpisodeData.episodes[currentEpisode] || {};
-  const episodeSynopsis = currentEpMeta.synopsis || "";
   return `<div class="page page--watch"><div class="watch-layout" id="watchViewContainer">
-    <aside class="watch-sidebar watch-sidebar--left" aria-label="Anime info and settings">
+    <aside class="watch-sidebar">
       <div class="watch-meta"><div class="watch-title">${escapeHtml(getDisplayTitle(entry))}</div><div class="watch-meta__row"><span class="${getStatusClass(entry.status)}">${escapeHtml(STATUS_LABELS[entry.status])}</span>${entry.averageScore ? `<span class="watch-badge">AniList ${entry.averageScore}</span>` : ""}${entry.year ? `<span class="watch-badge">${entry.year}</span>` : ""}</div></div>
       <div class="watch-language-sticky"><div class="language-toggle" role="group" aria-label="Audio language"><button type="button" class="${entry.language === "sub" ? "is-active" : ""}" data-action="switch-language" data-lang="sub">SUB</button><button type="button" class="${entry.language === "dub" ? "is-active" : ""}" data-action="switch-language" data-lang="dub">DUB</button></div></div>
-      <div class="watch-sidebar__body watch-sidebar__body--compact"><div class="current-episode-synopsis">${episodeSynopsis ? `<div class="ep-synopsis-label">Ep ${currentEpisode}: ${escapeHtml(currentEpMeta.name || "")}</div><div class="ep-synopsis-text">${escapeHtml(episodeSynopsis)}</div>` : `<div class="ep-synopsis-label">Episode ${currentEpisode}</div><div class="ep-synopsis-text muted">No synopsis available</div>`}</div></div>
+      <div class="watch-sidebar__body"><div id="episodeGroupSelector"></div><div class="episode-list" id="episodeList"></div></div>
       <div class="watch-sidebar-bottom"><div class="watch-progress-label">${escapeHtml(progressLabel)}</div><div id="watchViewRatingContainer"></div><div><label class="muted" for="watchStatusSelect">Status</label><select id="watchStatusSelect" class="select" data-status-select="${entry.id}">${STATUS_OPTIONS.map(status => `<option value="${status}" ${entry.status === status ? "selected" : ""}>${STATUS_LABELS[status]}</option>`).join("")}</select></div></div>
+      <div class="watch-sidebar-footer-buttons"><button type="button" class="action-button" data-action="watch-mark">Mark Watched</button><button type="button" class="secondary-button" data-action="remove-from-library" data-id="${entry.id}">Remove from Library</button><button type="button" class="secondary-button" data-action="watch-back"> &larr; Back</button></div>
     </aside>
     <section class="watch-player">
-      <div class="watch-player__frame" id="watchPlayerFrame">${uiState.watch.forceFallback ? `<div class="watch-player__fallback"><div class="watch-player__fallback-card"><div class="watch-title">No working providers found for this title</div><div class="muted">Try switching providers below or search manually.</div><a class="action-button" href="${escapeHtml(fallbackUrl)}" target="_blank" rel="noopener">Search on HiAnime &#8594;</a></div></div>` : ""}<div id="provider-status" class="provider-status"></div></div>
-      <div class="watch-player__controls"><button type="button" class="secondary-button" data-action="watch-prev" ${currentEpisode <= 1 ? "disabled" : ""}>&larr; Prev</button><strong class="watch-player__ep-label">Ep ${currentEpisode} / ${entry.episodes || "?"}</strong><button type="button" class="secondary-button" data-action="watch-next" ${currentEpisode >= totalEpisodes ? "disabled" : ""}>Next &rarr;</button><button type="button" class="secondary-button" data-action="switch-provider" ${STREAM_PROVIDERS.filter(p => p.active).length <= 1 ? "disabled" : ""} title="Switch provider (W)" aria-label="Switch streaming provider">${STREAM_PROVIDERS.filter(p => p.active)[0]?.name || "Provider"}</button><button type="button" class="secondary-button watch-fs-btn" data-action="toggle-fullscreen" title="Fullscreen (F)" aria-label="Toggle fullscreen">&#x26F6;</button></div>
+      <div class="watch-player__frame">${currentUrl && !uiState.watch.forceFallback ? `<iframe src="${escapeHtml(currentUrl)}" title="${escapeHtml(getDisplayTitle(entry))}" allow="autoplay; fullscreen" allowfullscreen data-watch-iframe></iframe>` : `<div class="watch-player__fallback"><div class="watch-player__fallback-card"><div class="watch-title">No stream available for this title via ${provider.name}</div><div class="muted">Come back and mark episodes watched manually using the list on the left.</div><a class="action-button" href="${escapeHtml(fallbackUrl)}" target="_blank" rel="noopener">Search on HiAnime -&gt;</a></div></div>`}</div>
+      <div class="watch-player__controls"><button type="button" class="secondary-button" data-action="watch-prev" ${currentEpisode <= 1 ? "disabled" : ""}>&larr; Prev</button><strong class="watch-player__ep-label">Ep ${currentEpisode} / ${entry.episodes || "?"}</strong><button type="button" class="secondary-button" data-action="watch-next" ${currentEpisode >= totalEpisodes ? "disabled" : ""}>Next &rarr;</button><button type="button" class="secondary-button" data-action="switch-provider" ${STREAM_PROVIDERS.length <= 1 ? "disabled" : ""} title="Switch provider">${provider.name}</button><button type="button" class="secondary-button watch-fs-btn" data-action="toggle-fullscreen" title="Fullscreen (F)">&#x26F6;</button></div>
     </section>
-    <aside class="watch-sidebar watch-sidebar--right" aria-label="Episode list">
-      <div class="watch-sidebar__body"><div id="episodeGroupSelector"></div><div class="episode-list" id="episodeList"></div></div>
-      <div class="watch-sidebar-footer-buttons"><button type="button" class="action-button" data-action="watch-mark">Mark Watched</button><button type="button" class="secondary-button" data-action="remove-from-library" data-id="${entry.id}">Remove</button><button type="button" class="secondary-button" data-action="watch-back"> &larr; Back</button></div>
-    </aside>
   </div><div id="watchOrderMount"></div></div>`;
 }
 
@@ -1420,14 +1240,7 @@ function addToLibrary(anilistData, status, options = {}) {
   userData[String(next.id)] = next; saveData(); uiState.inlineStatusPicker = null; uiState.overlay = null;
   if (options.render !== false) renderApp(); if (options.toast !== false) showToast(`${getDisplayTitle(next)} added to your library.`, "success");
 }
-function getAniListResultBySource(source, id) {
-  if (source === "hero") {
-    const found = homeHeroItems.find((m) => Number(m.id) === Number(id));
-    if (found) return found;
-  }
-  const bucket = source === "browse" ? uiState.browse.results : uiState.search.results;
-  return bucket.find((item) => Number(item.id) === Number(id)) || null;
-}
+function getAniListResultBySource(source, id) { const bucket = source === "browse" ? uiState.browse.results : uiState.search.results; return bucket.find((item) => Number(item.id) === Number(id)) || null; }
 function openStatusPicker(source, id) {
   const media = getAniListResultBySource(source, id); if (!media) return;
   if (uiState.inlineStatusPicker && uiState.inlineStatusPicker.source === source && Number(uiState.inlineStatusPicker.id) === Number(id)) { uiState.inlineStatusPicker = null; renderApp(); return; }
@@ -1450,7 +1263,7 @@ function renderOverlay() {
   }
   if (uiState.overlay.type === "detail") {
     const entry = getEntry(uiState.overlay.id); if (!entry) return "";
-    return `<div class="overlay" data-action="close-overlay"><div class="overlay-card" role="dialog" aria-modal="true" aria-label="Anime details" data-overlay-card><div class="overlay-card__hero"><div class="overlay-card__cover">${entry.cover ? `<img src="${escapeHtml(entry.cover)}" alt="${escapeHtml(getDisplayTitle(entry))}" loading="lazy">` : ""}</div><div class="overlay-card__meta"><div class="overlay-card__title">${escapeHtml(getDisplayTitle(entry))}</div><div class="muted">${escapeHtml(formatCount(entry.episodes || 0, "episode"))}${entry.year ? ` • ${entry.year}` : ""}</div><div class="watch-meta__row"><span class="${getStatusClass(entry.status)}">${escapeHtml(STATUS_LABELS[entry.status])}</span>${entry.averageScore ? `<span class="watch-badge">AniList ${entry.averageScore}</span>` : ""}</div><select class="select" data-status-select="${entry.id}">${STATUS_OPTIONS.map(status => `<option value="${status}" ${entry.status === status ? "selected" : ""}>${STATUS_LABELS[status]}</option>`).join("")}</select></div></div><div class="overlay-card__actions"><button type="button" class="action-button" data-action="open-watch" data-id="${entry.id}"> &#9654; Start Watching</button><button type="button" class="secondary-button" data-action="remove-from-library" data-id="${entry.id}">Remove from Library</button><button type="button" class="nav-button" data-action="close-overlay">Close</button></div></div></div>`;
+    return `<div class="overlay" data-action="close-overlay"><div class="overlay-card" role="dialog" aria-modal="true" aria-label="Anime details" data-overlay-card><div class="overlay-card__hero"><div class="overlay-card__cover">${entry.cover ? `<img src="${escapeHtml(entry.cover)}" alt="${escapeHtml(getDisplayTitle(entry))}">` : ""}</div><div class="overlay-card__meta"><div class="overlay-card__title">${escapeHtml(getDisplayTitle(entry))}</div><div class="muted">${escapeHtml(formatCount(entry.episodes || 0, "episode"))}${entry.year ? ` • ${entry.year}` : ""}</div><div class="watch-meta__row"><span class="${getStatusClass(entry.status)}">${escapeHtml(STATUS_LABELS[entry.status])}</span>${entry.averageScore ? `<span class="watch-badge">AniList ${entry.averageScore}</span>` : ""}</div><select class="select" data-status-select="${entry.id}">${STATUS_OPTIONS.map(status => `<option value="${status}" ${entry.status === status ? "selected" : ""}>${STATUS_LABELS[status]}</option>`).join("")}</select></div></div><div class="overlay-card__actions"><button type="button" class="action-button" data-action="open-watch" data-id="${entry.id}"> &#9654; Start Watching</button><button type="button" class="secondary-button" data-action="remove-from-library" data-id="${entry.id}">Remove from Library</button><button type="button" class="nav-button" data-action="close-overlay">Close</button></div></div></div>`;
   }
   if (uiState.overlay.type === "settings") {
     const accentColors = [
@@ -1503,232 +1316,27 @@ function showToast(message, type = "info") {
 }
 
 /* UTILITIES */
-
-// ─── Export ──────────────────────────────────────────────────────────────────
-// Schema version — bump when the export format changes so importers can adapt.
-const EXPORT_SCHEMA_VERSION = 1;
-
-// Map internal STATUS_OPTIONS values to the camelCase library bucket keys used
-// in the export JSON.  Every status must appear here.
-const STATUS_TO_BUCKET = {
-  "watching":      "watching",
-  "completed":     "completed",
-  "queued":        "queued",
-  "plan-to-watch": "planToWatch",
-  "dropped":       "dropped",
-  "paused":        "onHold",
-  "untracked":     "untracked",
-};
-
-// Reverse map: bucket key → internal status value used by normalizeEntry().
-const BUCKET_TO_STATUS = Object.fromEntries(
-  Object.entries(STATUS_TO_BUCKET).map(([status, bucket]) => [bucket, status])
-);
-
 function exportData() {
-  const entries = getAnimeEntries();
-
-  // Guard: nothing to export
-  if (entries.length === 0) {
-    showToast("Your library is empty, nothing to export.", "info");
-    return;
-  }
-
-  // Build the categorised library object
-  const library = {
-    watching:    [],
-    completed:   [],
-    queued:      [],
-    planToWatch: [],
-    dropped:     [],
-    onHold:      [],
-    untracked:   [],
-  };
-
-  // Flat ratings map (animeId → ratingValue) as required by the spec
-  const ratings = {};
-
-  for (const entry of entries) {
-    const bucket = STATUS_TO_BUCKET[entry.status] || "untracked";
-
-    // Serialise every field that exists on a normalised entry
-    const serialised = {
-      id:              entry.id,
-      anilistId:       entry.anilistId,
-      title:           entry.title,
-      titleEnglish:    entry.titleEnglish,
-      cover:           entry.cover,
-      banner:          entry.banner,
-      episodes:        entry.episodes,
-      status:          entry.status,
-      episodesWatched: entry.episodesWatched,
-      language:        entry.language,
-      rating:          entry.rating,          // also embedded per-entry
-      dateAdded:       entry.dateAdded,
-      lastWatched:     entry.lastWatched,
-      completedAt:     entry.completedAt,
-      notes:           entry.notes,
-      genres:          entry.genres,
-      year:            entry.year,
-      sessionLog:      entry.sessionLog,
-      averageScore:    entry.averageScore,
-    };
-
-    library[bucket].push(serialised);
-
-    // Populate the top-level ratings map (skip unrated entries)
-    if (entry.rating > 0) {
-      ratings[String(entry.id)] = entry.rating;
-    }
-  }
-
-  const exportPayload = {
-    schemaVersion: EXPORT_SCHEMA_VERSION,
-    exportedAt:    new Date().toISOString(),
-    totalEntries:  entries.length,
-    library,
-    ratings,
-  };
-
-  const json = JSON.stringify(exportPayload, null, 2);
-  const blob = new Blob([json], { type: "application/json" });
-  const url  = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href     = url;
-  anchor.download = "anime-library-backup.json";
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
-
-  showToast(`Exported ${entries.length} ${entries.length === 1 ? "title" : "titles"}.`, "success");
+  const payload = JSON.stringify(userData, null, 2); const blob = new Blob([payload], { type: "application/json" });
+  const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); const stamp = new Date().toISOString().slice(0, 10);
+  anchor.href = url; anchor.download = `anivault-backup-${stamp}.json`; document.body.appendChild(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url);
+  showToast("Backup exported.", "success");
 }
-
-// ─── Import ──────────────────────────────────────────────────────────────────
 function importData(event) {
-  const file = event.target.files && event.target.files[0];
-  if (!file) return;
-
-  const reader = new FileReader();
-  reader.onload = () => {
+  const file = event.target.files && event.target.files[0]; if (!file) return;
+  const reader = new FileReader(); reader.onload = () => {
     try {
-      const raw = JSON.parse(String(reader.result || "{}"));
-
-      // ── Detect format ────────────────────────────────────────────────────
-      // Accept both the new versioned format (schemaVersion present) and the
-      // legacy flat format (plain object of entries keyed by id).
-      let entriesToImport = [];
-
-      if (raw && typeof raw === "object" && raw.schemaVersion === EXPORT_SCHEMA_VERSION) {
-        // ── New versioned format ─────────────────────────────────────────
-        const lib = raw.library;
-        if (!lib || typeof lib !== "object") {
-          showToast("Invalid or corrupted backup file. Please use a valid export.", "error");
-          event.target.value = "";
-          return;
-        }
-
-        // Collect entries from every bucket, restoring the correct status
-        for (const [bucket, bucketEntries] of Object.entries(lib)) {
-          if (!Array.isArray(bucketEntries)) continue;
-          const statusForBucket = BUCKET_TO_STATUS[bucket];
-          for (const entry of bucketEntries) {
-            if (!entry || typeof entry !== "object") continue;
-            // Prefer the embedded status; fall back to the bucket's status
-            const resolvedStatus = STATUS_OPTIONS.includes(entry.status)
-              ? entry.status
-              : (statusForBucket || "untracked");
-            entriesToImport.push({ ...entry, status: resolvedStatus });
-          }
-        }
-
-        // Overlay ratings from the top-level ratings map if an entry has no
-        // embedded rating (graceful fallback for partial exports)
-        if (raw.ratings && typeof raw.ratings === "object") {
-          entriesToImport = entriesToImport.map(entry => {
-            if (!entry.rating && raw.ratings[String(entry.id)]) {
-              return { ...entry, rating: raw.ratings[String(entry.id)] };
-            }
-            return entry;
-          });
-        }
-
-      } else if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-        // ── Legacy flat format (plain userData object) ───────────────────
-        // Accept it for backward compatibility but validate it has at least
-        // one recognisable anime entry.
-        const legacyEntries = Object.values(raw).filter(
-          v => v && typeof v === "object" && Number.isFinite(Number(v.id)) && Number(v.id) > 0
-        );
-        if (legacyEntries.length === 0) {
-          showToast("Invalid or corrupted backup file. Please use a valid export.", "error");
-          event.target.value = "";
-          return;
-        }
-        entriesToImport = legacyEntries;
-
-      } else {
-        showToast("Invalid or corrupted backup file. Please use a valid export.", "error");
-        event.target.value = "";
-        return;
-      }
-
-      if (entriesToImport.length === 0) {
-        showToast("The backup file contains no anime entries.", "info");
-        event.target.value = "";
-        return;
-      }
-
-      // ── Merge into current library ───────────────────────────────────────
-      // Process all entries first; only update userData after all succeed.
-      const normalised = [];
-      for (const raw of entriesToImport) {
-        const entry = normalizeEntry(raw);
-        if (entry) normalised.push(entry);
-      }
-
-      if (normalised.length === 0) {
-        showToast("Invalid or corrupted backup file. Please use a valid export.", "error");
-        event.target.value = "";
-        return;
-      }
-
-      // Merge: overwrite existing entries, add new ones — never wipe first
-      for (const entry of normalised) {
-        userData[String(entry.id)] = entry;
-      }
-
-      saveData();
-      renderApp();
-
-      // ── Build success message ────────────────────────────────────────────
-      const categoryCounts = {};
-      for (const entry of normalised) {
-        const label = STATUS_LABELS[entry.status] || entry.status;
-        categoryCounts[label] = (categoryCounts[label] || 0) + 1;
-      }
-      const distinctCategories = Object.keys(categoryCounts).length;
-
-      showToast(
-        `Import complete — ${normalised.length} anime restored across ${distinctCategories} ${distinctCategories === 1 ? "category" : "categories"}.`,
-        "success"
-      );
-
-    } catch (err) {
-      showToast("Invalid or corrupted backup file. Please use a valid export.", "error");
-    } finally {
-      event.target.value = "";
-    }
-  };
-
-  reader.readAsText(file);
+      const parsed = JSON.parse(String(reader.result || "{}")); const normalized = normalizeLibrary(parsed); let count = 0;
+      Object.values(normalized).forEach(entry => { if (isAnimeEntry(entry)) { userData[String(entry.id)] = entry; count += 1; } });
+      saveData(); renderApp(); showToast(`Imported ${count} ${count === 1 ? "title" : "titles"}.`, "success");
+    } catch (error) { showToast("That backup file could not be imported.", "error"); } finally { event.target.value = ""; }
+  }; reader.readAsText(file);
 }
 function renderCurrentPage() {
   if (currentWatchId) return renderWatchView();
   if (currentTab === "library") return renderLibrary();
   if (currentTab === "browse") return renderBrowse();
   if (currentTab === "search") return renderSearch();
-  if (currentTab === "stats") return renderStats();
   return renderHome();
 }
 function renderApp() {
@@ -1737,364 +1345,19 @@ function renderApp() {
 }
 function afterRender() {
   document.querySelectorAll("[data-row-track]").forEach(track => { syncScrollButtons(track.id); track.addEventListener("scroll", () => syncScrollButtons(track.id), { passive: true }); });
+  if (!currentWatchId && currentTab === "home") initHeroCarousel();
   if (uiState.navSearchOpen) { const input = document.getElementById("navSearchInput"); if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); } }
   if (uiState.focusInputId) { const focusTarget = document.getElementById(uiState.focusInputId); if (focusTarget) { focusTarget.focus(); if (typeof focusTarget.setSelectionRange === "function") focusTarget.setSelectionRange(focusTarget.value.length, focusTarget.value.length); } uiState.focusInputId = ""; }
   if (currentTab === "search" && !currentWatchId) { const pageInput = document.getElementById("searchPageInput"); if (pageInput && document.activeElement !== pageInput && uiState.search.query) pageInput.setSelectionRange(pageInput.value.length, pageInput.value.length); }
   if (currentTab === "browse" && !uiState.browse.initialized && !uiState.browse.loading) loadBrowse("seasonal");
-  if (currentTab === "home" && !currentWatchId) HeroCarousel.init();
-  if (currentWatchId) { const activeEpisode = document.querySelector(".ep-row.current"); if (activeEpisode) activeEpisode.scrollIntoView({ block: "nearest" }); renderRatingComponent(currentWatchId, "watchViewRatingContainer"); paintEpisodeList(currentWatchId); const currentEntry = getEntry(currentWatchId); if (currentEntry && franchiseCache[currentEntry.anilistId || currentEntry.id]) renderWatchOrder(currentEntry.anilistId || currentEntry.id, currentWatchOrderSort); if (!uiState.watch.forceFallback) ProviderManager.init(currentWatchId); }
+  if (currentWatchId) { const activeEpisode = document.querySelector(".ep-row.current"); if (activeEpisode) activeEpisode.scrollIntoView({ block: "nearest" }); renderRatingComponent(currentWatchId, "watchViewRatingContainer"); paintEpisodeList(currentWatchId); const currentEntry = getEntry(currentWatchId); if (currentEntry && franchiseCache[currentEntry.anilistId || currentEntry.id]) renderWatchOrder(currentEntry.anilistId || currentEntry.id, currentWatchOrderSort); setupWatchPlayer(); } else window.clearTimeout(streamFallbackTimer);
 }
-/* PROVIDER MANAGER — Event-driven three-layer provider fallback system */
-const ProviderManager = (function () {
-  let _entry = null;
-  let _activeProviders = [];
-  let _currentIndex = 0;
-  let _hangTimer = null;
-  let _loadId = 0;
-  let _postMsgRef = null;
-
-  function _frame() { return document.getElementById("watchPlayerFrame"); }
-
-  function showMessage(text) {
-    const el = document.getElementById("provider-status");
-    if (el) { el.textContent = text; el.style.display = "flex"; }
-  }
-  function hideMessage() {
-    const el = document.getElementById("provider-status");
-    if (el) { el.style.display = "none"; }
-  }
-  function _clearHang() {
-    if (_hangTimer) { clearTimeout(_hangTimer); _hangTimer = null; }
-  }
-  function _updateBtn(name) {
-    const btn = document.querySelector("[data-action='switch-provider']");
-    if (btn && name) btn.textContent = name;
-  }
-
-  function next() {
-    _clearHang();
-    _currentIndex++;
-    if (_currentIndex >= _activeProviders.length) {
-      showMessage("No working providers found for this title.");
-      uiState.watch.forceFallback = true;
-      renderApp();
-      return;
-    }
-    load();
-  }
-
-  function _loadIframe(url, providerName, myLoadId) {
-    const frame = _frame(); if (!frame) return;
-    _clearHang();
-    const old = frame.querySelector("iframe[data-watch-iframe]");
-    if (old) old.remove();
-
-    const iframe = document.createElement("iframe");
-    iframe.title = _entry ? getDisplayTitle(_entry) : "Anime player";
-    iframe.allow = "autoplay; fullscreen";
-    iframe.allowFullscreen = true;
-    iframe.setAttribute("data-watch-iframe", "");
-
-    const startTime = performance.now();
-
-    iframe.addEventListener("load", () => {
-      if (myLoadId !== _loadId) return;
-      _clearHang();
-      const elapsed = performance.now() - startTime;
-      if (elapsed < 400) {
-        showMessage(`${providerName} returned no content, trying next...`);
-        next();
-      } else {
-        hideMessage();
-        uiState.watch.streamLoaded = true;
-        uiState.watch.currentProvider = _currentIndex;
-        _updateBtn(providerName);
-      }
-    }, { once: true });
-
-    iframe.addEventListener("error", () => {
-      if (myLoadId !== _loadId) return;
-      _clearHang();
-      showMessage(`${providerName} failed to load, trying next...`);
-      next();
-    }, { once: true });
-
-    const statusEl = document.getElementById("provider-status");
-    if (statusEl) frame.insertBefore(iframe, statusEl);
-    else frame.appendChild(iframe);
-
-    iframe.src = url;
-
-    _hangTimer = setTimeout(() => {
-      if (myLoadId !== _loadId) return;
-      showMessage(`${providerName} is not responding, trying next...`);
-      next();
-    }, 8000);
-  }
-
-  async function validateProvider(url, providerName, myLoadId) {
-    try {
-      const controller = new AbortController();
-      const tid = setTimeout(() => controller.abort(), 5000);
-      try { await fetch(url, { method: "HEAD", mode: "no-cors", signal: controller.signal }); }
-      finally { clearTimeout(tid); }
-    } catch (e) {
-      if (myLoadId !== _loadId) return;
-      showMessage(`${providerName} is unreachable, trying next...`);
-      next();
-      return;
-    }
-    if (myLoadId !== _loadId) return;
-    _loadIframe(url, providerName, myLoadId);
-  }
-
-  function load() {
-    if (_currentIndex >= _activeProviders.length) {
-      showMessage("No working providers found for this title.");
-      uiState.watch.forceFallback = true;
-      renderApp();
-      return;
-    }
-    const provider = _activeProviders[_currentIndex];
-    const url = provider.buildUrl(_entry, currentEpisode, _entry.language || "sub");
-    const myLoadId = ++_loadId;
-    showMessage(`Checking ${provider.name}...`);
-    validateProvider(url, provider.name, myLoadId);
-  }
-
-  function setupPostMessageListener() {
-    if (_postMsgRef) window.removeEventListener("message", _postMsgRef);
-    _postMsgRef = (event) => {
-      if (!currentWatchId) return;
-      const payload = (typeof event.data === "object" && event.data !== null)
-        ? event.data
-        : (typeof event.data === "string" ? safeParse(event.data) : null);
-      if (payload && (payload.event === "ended" || payload.type === "ended")) {
-        handlePlaybackEnded();
-        return;
-      }
-      const raw = typeof event.data === "string" ? event.data : JSON.stringify(event.data || "");
-      const lower = raw.toLowerCase();
-      const failTerms = ["not found", "unavailable", "error", "failed", "404", "no source"];
-      if (failTerms.some(t => lower.includes(t))) {
-        _clearHang();
-        showMessage("Provider reported no video, trying next...");
-        next();
-      }
-    };
-    window.addEventListener("message", _postMsgRef);
-  }
-
-  function init(entryId) {
-    _entry = getEntry(entryId); if (!_entry) return;
-    _activeProviders = STREAM_PROVIDERS.filter(p => p.active);
-    _currentIndex = 0;
-    _clearHang();
-    uiState.watch.streamLoaded = false;
-    uiState.watch.currentProvider = 0;
-    setupPostMessageListener();
-    load();
-  }
-
-  function switchToNext() {
-    _clearHang();
-    if (_activeProviders.length === 0) return;
-    const frame = _frame();
-    const old = frame && frame.querySelector("iframe[data-watch-iframe]");
-    if (old) old.remove();
-    _currentIndex = (_currentIndex + 1) % _activeProviders.length;
-    uiState.watch.forceFallback = false;
-    load();
-  }
-
-  return { init, load, next, validateProvider, setupPostMessageListener, showMessage, hideMessage, switchToNext };
-}());
-
-/* ═══════════════════════════════════════════════════════════════
-   HERO CAROUSEL — GPU-accelerated cinematic streaming carousel
-   ═══════════════════════════════════════════════════════════════ */
-const HeroCarousel = (function () {
-  const INTERVAL   = 6500;  /* ms between auto-advances */
-  const SWIPE_MIN  = 40;    /* px drag to register as swipe */
-
-  let _slides      = [];
-  let _dots        = [];
-  let _track       = null;
-  let _bar         = null;
-  let _current     = 0;
-  let _autoTimer   = null;
-  let _paused      = false;
-  let _touchX      = 0;
-  let _touchY      = 0;
-  let _dragging    = false;
-  let _dragStartX  = 0;
-  let _initialized = false;
-
-  /* ── public init — called by afterRender every home render ── */
-  function init() {
-    const carousel = document.getElementById("heroCarousel");
-    if (!carousel) return;
-
-    _track  = document.getElementById("heroTrack");
-    _bar    = document.getElementById("heroProgressBar");
-    _slides = Array.from(carousel.querySelectorAll(".hero-carousel__slide"));
-    _dots   = Array.from(carousel.querySelectorAll("[data-carousel-dot]"));
-    _initialized = false;
-
-    if (_slides.length === 0) return;
-
-    /* Reset to slide 0 without animation */
-    _current = 0;
-    _applySlide(0, false);
-
-    if (_slides.length < 2) return; /* single-slide: no controls needed */
-
-    /* Arrow buttons */
-    const prev = document.getElementById("heroCarouselPrev");
-    const next = document.getElementById("heroCarouselNext");
-    if (prev) prev.onclick = () => _advance(-1);
-    if (next) next.onclick = () => _advance(+1);
-
-    /* Dot buttons */
-    _dots.forEach((dot, i) => { dot.onclick = () => _goTo(i); });
-
-    /* Keyboard (carousel focusable) */
-    carousel.setAttribute("tabindex", "0");
-    carousel.onkeydown = (e) => {
-      if (e.key === "ArrowLeft")  { e.preventDefault(); _advance(-1); }
-      if (e.key === "ArrowRight") { e.preventDefault(); _advance(+1); }
-    };
-
-    /* Pause on hover */
-    carousel.onmouseenter = () => { _paused = true;  _stopTimer(); };
-    carousel.onmouseleave = () => { _paused = false; _startTimer(); };
-
-    /* Touch / swipe */
-    carousel.addEventListener("touchstart", _onTouchStart, { passive: true });
-    carousel.addEventListener("touchmove",  _onTouchMove,  { passive: true });
-    carousel.addEventListener("touchend",   _onTouchEnd,   { passive: true });
-
-    /* Mouse drag (desktop) */
-    carousel.addEventListener("mousedown",  _onDragStart);
-    window.addEventListener("mousemove",    _onDragMove);
-    window.addEventListener("mouseup",      _onDragEnd);
-
-    _initialized = true;
-    _startTimer();
-  }
-
-  /* ── navigation ─────────────────────────────────────────── */
-  function _advance(dir) {
-    const n = _slides.length;
-    _goTo(((_current + dir) % n + n) % n);
-  }
-
-  function _goTo(index) {
-    if (index === _current && _initialized) return;
-    _current = index;
-    _applySlide(index, true);
-    _restartTimer();
-  }
-
-  /* ── slide transition ───────────────────────────────────── */
-  function _applySlide(index, animate) {
-    if (!_track) return;
-
-    /* GPU-accelerated slide */
-    _track.style.transition = animate
-      ? "transform 0.85s cubic-bezier(0.77, 0, 0.175, 1)"
-      : "none";
-    _track.style.transform = `translateX(-${index * 100}%)`;
-
-    /* Active class (drives CSS text animations + bg zoom) */
-    _slides.forEach((s, i) => s.classList.toggle("is-active", i === index));
-
-    /* Dots */
-    _dots.forEach((d, i) => {
-      d.classList.toggle("is-active", i === index);
-      d.setAttribute("aria-selected", String(i === index));
-    });
-  }
-
-  /* ── progress bar ───────────────────────────────────────── */
-  function _startTimer() {
-    _stopTimer();
-    if (!_bar) return;
-
-    /* Freeze current width, force reflow, then animate to 100% */
-    const cur = parseFloat(getComputedStyle(_bar).width) || 0;
-    const par = (_bar.parentElement && _bar.parentElement.offsetWidth) || 1;
-    const pct = Math.min((cur / par) * 100, 100);
-
-    _bar.style.transition = "none";
-    _bar.style.width = pct + "%";
-    void _bar.offsetWidth; /* reflow */
-
-    const remaining = Math.max(INTERVAL * (1 - pct / 100), 400);
-    _bar.style.transition = `width ${remaining}ms linear`;
-    _bar.style.width = "100%";
-
-    _autoTimer = setTimeout(() => {
-      if (!_paused) _advance(+1);
-    }, remaining);
-  }
-
-  function _stopTimer() {
-    clearTimeout(_autoTimer);
-    _autoTimer = null;
-    if (!_bar) return;
-
-    /* Freeze width in place */
-    const cur = parseFloat(getComputedStyle(_bar).width) || 0;
-    const par = (_bar.parentElement && _bar.parentElement.offsetWidth) || 1;
-    const pct = Math.min((cur / par) * 100, 100);
-    _bar.style.transition = "none";
-    _bar.style.width = pct + "%";
-  }
-
-  function _restartTimer() {
-    _stopTimer();
-    if (!_bar) return;
-    _bar.style.transition = "none";
-    _bar.style.width = "0%";
-    void _bar.offsetWidth;
-    if (!_paused) _startTimer();
-  }
-
-  /* ── touch handlers ─────────────────────────────────────── */
-  function _onTouchStart(e) {
-    _touchX = e.touches[0].clientX;
-    _touchY = e.touches[0].clientY;
-  }
-  function _onTouchMove() {}
-  function _onTouchEnd(e) {
-    const dx = e.changedTouches[0].clientX - _touchX;
-    const dy = e.changedTouches[0].clientY - _touchY;
-    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > SWIPE_MIN) {
-      _advance(dx < 0 ? +1 : -1);
-    }
-  }
-
-  /* ── mouse drag (desktop) ───────────────────────────────── */
-  function _onDragStart(e) {
-    _dragging = true;
-    _dragStartX = e.clientX;
-    _paused = true;
-    _stopTimer();
-  }
-  function _onDragMove() {}
-  function _onDragEnd(e) {
-    if (!_dragging) return;
-    _dragging = false;
-    const dx = e.clientX - _dragStartX;
-    if (Math.abs(dx) > SWIPE_MIN) _advance(dx < 0 ? +1 : -1);
-    _paused = false;
-    _startTimer();
-  }
-
-  return { init };
-}());
-
+function setupWatchPlayer() {
+  window.clearTimeout(streamFallbackTimer); const iframe = document.querySelector("[data-watch-iframe]"); if (!iframe) return;
+  uiState.watch.streamLoaded = false;
+  iframe.addEventListener("load", () => { uiState.watch.streamLoaded = true; window.clearTimeout(streamFallbackTimer); }, { once: true });
+  streamFallbackTimer = window.setTimeout(() => { if (!uiState.watch.streamLoaded && currentWatchId) { uiState.watch.forceFallback = true; renderApp(); showToast(`${STREAM_PROVIDERS[uiState.watch.currentProvider]?.name || "Stream"} did not load. Try switching providers.`, "error"); } }, 7000);
+}
 function syncScrollButtons(trackId) {
   const track = document.getElementById(trackId); if (!track) return;
   const prevButton = document.querySelector(`[data-target="${trackId}"][data-dir="prev"]`), nextButton = document.querySelector(`[data-target="${trackId}"][data-dir="next"]`);
@@ -2140,34 +1403,20 @@ function handleClick(event) {
   if (action === "set-library-filter") { uiState.library.filter = actionTarget.dataset.filter; renderApp(); return; }
   if (action === "browse-mode") { loadBrowse(actionTarget.dataset.mode); return; }
   if (action === "browse-genre") { loadBrowse("genre", actionTarget.dataset.genre); return; }
-  if (action === "browse-genre-select") { 
-    const value = event.target.value;
-    if (value === "CLEAR" || value === "") { uiState.browse.page = 1; uiState.browse.hasMore = true; loadBrowse("seasonal"); }
-    else { loadBrowse("genre", value); }
-    return; 
-  }
-  if (action === "genre-search") {
-    const query = event.target.value.toLowerCase();
-    const selectEl = document.getElementById("genreSelect");
-    let options = [];
-    if (query.length >= 1) {
-      const existing = BROWSE_GENRES.filter(g => g.toLowerCase().includes(query));
-      if (query.length >= 2 && existing.length === 0) options.push(`<option value="${event.target.value.toUpperCase()}">Search: "${event.target.value}"</option>`);
-      options = options.concat(existing.map(g => `<option value="${g}">${g}</option>`));
-    }
-    if (options.length === 0) options = BROWSE_GENRES.map(g => `<option value="${g}">${g}</option>`);
-    selectEl.innerHTML = `<option value="CLEAR">🔄 Show All Anime (No Filter)</option>${options.join("")}`;
-    selectEl.focus();
-    return;
-  }
-  if (action === "browse-initial") { const initial = actionTarget.dataset.initial; const genresForLetter = GENRE_ALPHABET[initial] || []; if (genresForLetter.length || initial === "ALL") { loadBrowse(initial === "ALL" ? "seasonal" : "genre", genresForLetter[0] || ""); } return; }
-  if (action === "browse-load-more") { loadBrowseMore(); return; }
   if (action === "watch-back") { closeWatchView(); return; }
   if (action === "watch-prev") { if (currentWatchId) switchEpisode(currentWatchId, currentEpisode - 1); return; }
   if (action === "watch-next") { if (currentWatchId) switchEpisode(currentWatchId, currentEpisode + 1); return; }
   if (action === "watch-mark") { if (currentWatchId) markEpisodeWatched(currentWatchId, currentEpisode); return; }
   if (action === "toggle-fullscreen") { toggleWatchFullscreen(); return; }
-  if (action === "switch-provider") { ProviderManager.switchToNext(); return; }
+  if (action === "switch-provider") { 
+    const nextProvider = (uiState.watch.currentProvider + 1) % STREAM_PROVIDERS.length; 
+    uiState.watch.currentProvider = nextProvider; 
+    uiState.watch.streamLoaded = false; 
+    uiState.watch.forceFallback = false;
+    renderApp(); 
+    showToast(`Switched to ${STREAM_PROVIDERS[nextProvider].name}`, "info");
+    return; 
+  }
   if (action === "switch-language") { if (currentWatchId) switchLanguage(currentWatchId, actionTarget.dataset.lang); return; }
   if (action === "set-episode") { if (currentWatchId) switchEpisode(currentWatchId, Number(actionTarget.dataset.ep)); return; }
   if (action === "set-rating") { if (currentWatchId) setRating(currentWatchId, Number(actionTarget.dataset.rating)); return; }
@@ -2177,12 +1426,9 @@ function handleClick(event) {
   if (action === "skip-completion-rating") { document.querySelector(".rating-overlay")?.remove(); finalizeCompletion(Number(actionTarget.dataset.id)); return; }
   if (action === "remove-from-library") { removeFromLibrary(Number(actionTarget.dataset.id)); return; }
   if (action === "switch-episode-group") { const newGroupIndex = parseInt(actionTarget.dataset.groupIndex, 10); if (!isNaN(newGroupIndex) && currentWatchId) { currentEpisodeGroupIndex = newGroupIndex; uiState.watch.episodeGroupIndex = currentEpisodeGroupIndex; renderApp(); } return; }
-  if (action === "clear-filters") { uiState.search.filters = { yearMin: 0, yearMax: 0, scoreMin: 0, episodesMin: 0, status: "" }; renderApp(); return; }
-  if (actionTarget.dataset.filter === "status") { uiState.search.filters.status = actionTarget.dataset.value; renderApp(); return; }
 }
 function handleInput(event) {
   if (event.target.id === "librarySearchInput") { uiState.library.query = event.target.value; uiState.focusInputId = "librarySearchInput"; renderApp(); return; }
-  if (event.target.dataset.filter) { const key = event.target.dataset.filter; uiState.search.filters[key] = parseInt(event.target.value, 10) || 0; return; }
   if (["searchPageInput", "navSearchInput", "mobileNavSearchInput"].includes(event.target.id)) {
     uiState.search.query = event.target.value; currentTab = "search";
     uiState.navSearchOpen = event.target.id === "navSearchInput";
@@ -2233,44 +1479,21 @@ function handleKeydown(event) {
   if (event.shiftKey && event.key.toLowerCase() === "n") { event.preventDefault(); switchEpisode(currentWatchId, currentEpisode + 1); return; }
   if (event.shiftKey && event.key.toLowerCase() === "p") { event.preventDefault(); switchEpisode(currentWatchId, currentEpisode - 1); return; }
   if (event.key === " ") { const iframe = document.querySelector("[data-watch-iframe]"); if (iframe) { event.preventDefault(); iframe.focus(); } }
-  if (event.key.toLowerCase() === "w") { event.preventDefault(); ProviderManager.switchToNext(); return; }
+  if (event.key.toLowerCase() === "w") { event.preventDefault(); const entry = getEntry(currentWatchId); if (entry) { uiState.watch.currentProvider = (uiState.watch.currentProvider + 1) % STREAM_PROVIDERS.length; uiState.watch.streamLoaded = false; uiState.watch.forceFallback = false; renderApp(); showToast(`Switched to ${STREAM_PROVIDERS[uiState.watch.currentProvider].name}`, "info"); } return; }
+}
+function handleMessage(event) {
+  if (!event.origin.includes("megaplay.buzz") || !currentWatchId) return;
+  const payload = typeof event.data === "string" ? safeParse(event.data) : event.data;
+  if (!payload || typeof payload !== "object") return;
+  if (payload.event === "ended" || payload.type === "ended") handlePlaybackEnded();
 }
 function safeParse(value) { try { return JSON.parse(value); } catch (error) { return null; } }
 function init() {
   loadData(); renderApp();
   app.addEventListener("click", handleClick); app.addEventListener("input", handleInput); app.addEventListener("change", handleChange); app.addEventListener("focusout", handleFocusOut);
-  window.addEventListener("keydown", handleKeydown);
+  window.addEventListener("keydown", handleKeydown); window.addEventListener("message", handleMessage);
   window.addEventListener("resize", () => document.querySelectorAll("[data-row-track]").forEach(track => syncScrollButtons(track.id)));
   if (uiState.search.query.trim().length >= 2) scheduleAniListSearch(uiState.search.query);
-
-  /* Notification system: check every 6 hours for new episodes */
-  if ("Notification" in window && Notification.permission === "default") Notification.requestPermission();
-  setInterval(async () => {
-    const airing = getAnimeEntries().filter(e => e.status === "watching");
-    for (const entry of airing.slice(0, 5)) {
-      try {
-        const data = await fetch(`https://graphql.anilist.co`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: `query($id: Int) { Media(id: $id) { id episodes status } }`, variables: { id: entry.anilistId } }) });
-        const json = await data.json();
-        const media = json.data?.Media;
-        if (media && media.episodes > entry.episodes && media.status === "RELEASING") {
-          new Notification("New episode available!", { body: `${entry.title} now has ${media.episodes} episodes!`, icon: entry.cover });
-        }
-      } catch (e) {}
-    }
-  }, 6 * 60 * 60 * 1000);
-
-  /* Touch gestures: swipe left/right on episode list to mark watched */
-  let touchStartX = 0, touchStartY = 0;
-  document.addEventListener("touchstart", (e) => { touchStartX = e.touches[0].clientX; touchStartY = e.touches[0].clientY; }, { passive: true });
-  document.addEventListener("touchend", (e) => {
-    if (!currentWatchId) return;
-    const touchEndX = e.changedTouches[0].clientX, touchEndY = e.changedTouches[0].clientY;
-    const deltaX = touchEndX - touchStartX, deltaY = touchEndY - touchStartY;
-    if (Math.abs(deltaX) > 50 && Math.abs(deltaX) > Math.abs(deltaY)) {
-      if (deltaX < -50) { markEpisodeWatched(currentWatchId, currentEpisode); showToast("Marked episode " + currentEpisode + " as watched", "success"); }
-      else if (deltaX > 50 && currentEpisode > 1) { switchEpisode(currentWatchId, currentEpisode - 1); showToast("Previous episode", "info"); }
-    }
-  }, { passive: true });
 
   /* FIX #4: is-scrolling class hides hover panels while scrolling */
   let _scrollTimeout = 0;
