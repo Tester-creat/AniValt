@@ -1275,38 +1275,39 @@ function renderWatchView() {
       </div>
     </aside>
 
-    <!-- RIGHT COLUMN: player on top, episode panel below -->
-    <div class="watch-main">
+    <!-- CENTRE: video player + controls -->
+    <section class="watch-player">
+      <div class="watch-player__frame">${currentUrl && !uiState.watch.forceFallback
+        ? `<iframe src="${escapeHtml(currentUrl)}" title="${escapeHtml(getDisplayTitle(entry))}" allow="autoplay; fullscreen" allowfullscreen data-watch-iframe></iframe>`
+        : `<div class="watch-player__fallback"><div class="watch-player__fallback-card"><div class="watch-title">No stream available for this title via ${provider.name}</div><div class="muted">Come back and mark episodes watched manually using the episode list on the right.</div><a class="action-button" href="${escapeHtml(fallbackUrl)}" target="_blank" rel="noopener">Search on HiAnime &rarr;</a></div></div>`
+      }</div>
+      <div class="watch-player__controls">
+        <button type="button" class="secondary-button" data-action="watch-prev" ${currentEpisode <= 1 ? "disabled" : ""}>&larr; Prev</button>
+        <strong class="watch-player__ep-label">Ep ${currentEpisode} / ${entry.episodes || "?"}</strong>
+        <button type="button" class="secondary-button" data-action="watch-next" ${currentEpisode >= totalEpisodes ? "disabled" : ""}>Next &rarr;</button>
+        <button type="button" class="secondary-button" data-action="switch-provider" ${STREAM_PROVIDERS.length <= 1 ? "disabled" : ""} title="Switch provider">${provider.name}</button>
+        <button type="button" class="secondary-button watch-fs-btn" data-action="toggle-fullscreen" title="Fullscreen (F)">&#x26F6;</button>
+      </div>
+    </section>
 
-      <!-- VIDEO PLAYER -->
-      <section class="watch-player">
-        <div class="watch-player__frame">${currentUrl && !uiState.watch.forceFallback
-          ? `<iframe src="${escapeHtml(currentUrl)}" title="${escapeHtml(getDisplayTitle(entry))}" allow="autoplay; fullscreen" allowfullscreen data-watch-iframe></iframe>`
-          : `<div class="watch-player__fallback"><div class="watch-player__fallback-card"><div class="watch-title">No stream available for this title via ${provider.name}</div><div class="muted">Come back and mark episodes watched manually using the episode list below.</div><a class="action-button" href="${escapeHtml(fallbackUrl)}" target="_blank" rel="noopener">Search on HiAnime &rarr;</a></div></div>`
-        }</div>
-        <div class="watch-player__controls">
-          <button type="button" class="secondary-button" data-action="watch-prev" ${currentEpisode <= 1 ? "disabled" : ""}>&larr; Prev</button>
-          <strong class="watch-player__ep-label">Ep ${currentEpisode} / ${entry.episodes || "?"}</strong>
-          <button type="button" class="secondary-button" data-action="watch-next" ${currentEpisode >= totalEpisodes ? "disabled" : ""}>Next &rarr;</button>
-          <button type="button" class="secondary-button" data-action="switch-provider" ${STREAM_PROVIDERS.length <= 1 ? "disabled" : ""} title="Switch provider">${provider.name}</button>
-          <button type="button" class="secondary-button watch-fs-btn" data-action="toggle-fullscreen" title="Fullscreen (F)">&#x26F6;</button>
-        </div>
-      </section>
+    <!-- RIGHT PANEL: SUB/DUB → episode groups → episode list -->
+    <aside class="watch-episode-panel">
 
-      <!-- EPISODE PANEL: sub/dub + group selector + episode list -->
-      <div class="watch-episode-panel">
-        <div class="watch-episode-panel__header">
-          <span class="watch-episode-panel__label">Episodes</span>
-          <div class="language-toggle" role="group" aria-label="Audio language">
-            <button type="button" class="${entry.language === "sub" ? "is-active" : ""}" data-action="switch-language" data-lang="sub">SUB</button>
-            <button type="button" class="${entry.language === "dub" ? "is-active" : ""}" data-action="switch-language" data-lang="dub">DUB</button>
-          </div>
+      <!-- 1. SUB / DUB toggle — always first -->
+      <div class="watch-episode-panel__lang">
+        <div class="language-toggle" role="group" aria-label="Audio language">
+          <button type="button" class="${entry.language === "sub" ? "is-active" : ""}" data-action="switch-language" data-lang="sub">SUB</button>
+          <button type="button" class="${entry.language === "dub" ? "is-active" : ""}" data-action="switch-language" data-lang="dub">DUB</button>
         </div>
-        <div id="episodeGroupSelector"></div>
-        <div class="episode-list" id="episodeList"></div>
       </div>
 
-    </div><!-- end .watch-main -->
+      <!-- 2. Episode group chips — only rendered when >50 eps (paintEpisodeList fills this) -->
+      <div id="episodeGroupSelector"></div>
+
+      <!-- 3. Episode list — numbered, named, scrollable -->
+      <div class="episode-list" id="episodeList"></div>
+
+    </aside>
 
   </div><div id="watchOrderMount"></div></div>`;
 }
