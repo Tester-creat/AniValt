@@ -1010,7 +1010,7 @@ function renderWatchView() {
       ${episodeList}
     </div>` : `<div class="watch__movie-actions">
       <button type="button" class="btn ${entry.watched ? "btn--ghost" : "btn--play"}" data-action="mark-watched">${entry.watched ? "✓ Watched" : "Mark as watched"}</button>
-      <button type="button" class="btn btn--icon" data-action="toggle-list" data-key="${w.key}">${entry ? "✓ In list" : "＋ My List"}</button>
+      <button type="button" class="btn btn--ghost" data-action="toggle-list" data-key="${w.key}">${entry ? "✓ In list" : "＋ My List"}</button>
     </div>`}
     ${recs.length ? `<div class="watch__recs"><h2 class="row__title">More like this</h2><div class="grid grid--compact">${recs.map(renderCard).join("")}</div></div>` : ""}
   </div>`;
