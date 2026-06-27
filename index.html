@@ -3,16 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="description" content="AniVault — Your private anime streaming library">
-  <meta name="theme-color" content="#0a0a0f">
-  <title>AniVault | Your private stream</title>
+  <meta name="description" content="CineVault — your private cinema for movies, series & animation">
+  <meta name="theme-color" content="#08080b">
+  <title>CineVault | Movies, Series & Animation</title>
 
-  <!-- Favicon: Gradient AV badge -->
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%237c3aed'/%3E%3Cstop offset='100%25' stop-color='%23a855f7'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='14' fill='url(%23g)'/%3E%3Ctext x='32' y='44' font-family='Arial Black,sans-serif' font-size='28' font-weight='900' text-anchor='middle' fill='white'%3EAV%3C/text%3E%3C/svg%3E">
+  <!-- Favicon: gradient CV badge -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23e50914'/%3E%3Cstop offset='100%25' stop-color='%23ff5a1f'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='14' fill='url(%23g)'/%3E%3Ctext x='32' y='45' font-family='Arial Black,sans-serif' font-size='30' font-weight='900' text-anchor='middle' fill='white'%3ECV%3C/text%3E%3C/svg%3E">
 
   <!-- Preconnect for performance -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://image.tmdb.org" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 
   <link rel="stylesheet" href="styles.css">
@@ -23,14 +24,16 @@
       Option A (Node): npx serve .
       Option B (Python): python3 -m http.server 8080
       Then open http://localhost:8080
+
+    SETUP: open Settings (gear icon) and paste a free TMDB API key
+    from https://www.themoviedb.org/settings/api  (v3 "API Key").
   -->
-  <div id="app" role="application" aria-label="AniVault streaming platform"></div>
+  <div id="app" role="application" aria-label="CineVault streaming platform"></div>
   <div id="toastZone" class="toast-zone" aria-live="polite" aria-atomic="true"></div>
 
   <!--
-    FIX: Removed type="module" — ES modules require a server (http://) due to CORS.
-    Opening index.html directly as a file:// URL blocks module loading.
-    The app uses no import/export statements, so type="module" was not needed.
+    No type="module": the app uses no import/export, so it loads fine from
+    file:// as well as http://. ES modules would require a server.
   -->
   <script src="app.js"></script>
 </body>

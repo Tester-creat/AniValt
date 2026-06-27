@@ -1,92 +1,61 @@
 /**
- * Property test for normalization idempotence (P2)
- * Validates: Requirements 12.2, 12.3
- * 
- * Property: For any anime entry object (including malformed or partially-populated),
- * applying normalizeEntry() twice should produce the same result as applying it once.
- * i.e., normalizeEntry(normalizeEntry(x)) is deeply equal to normalizeEntry(x).
+ * P2 — normalizeEntry is idempotent and total.
+ * For any input (valid, partial, malformed, null), normalizeEntry produces a
+ * fully-shaped entry, and normalizing twice yields an identical result.
  */
+import { describe, it, expect } from "vitest";
+import * as fc from "fast-check";
+import { arbMediaEntry, arbMalformedEntry } from "./generators.js";
+import { normalizeEntry, STATUS_OPTIONS } from "./_appcode.js";
 
-import { describe, it, expect } from 'vitest';
-import * as fc from 'fast-check';
-import { arbMalformedEntry } from './generators.js';
+const REQUIRED_KEYS = [
+  "id", "mediaType", "key", "title", "overview", "poster", "backdrop", "year",
+  "voteAverage", "genreIds", "status", "rating", "notes", "dateAdded",
+  "lastWatched", "completedAt", "season", "episode", "totalSeasons",
+  "totalEpisodes", "watched", "sessionLog",
+];
 
-// Copy normalizeEntry from app.js for testing
-function normalizeEntry(entry) {
-  if (!entry || typeof entry !== 'object') return null;
-  const id = Number(entry.id || entry.anilistId);
-  if (!Number.isFinite(id) || id <= 0) return null;
-  const STATUS_OPTIONS = [
-    'watching',
-    'completed',
-    'queued',
-    'plan-to-watch',
-    'dropped',
-    'paused',
-    'untracked',
-  ];
-  const status = STATUS_OPTIONS.includes(entry.status) ? entry.status : 'untracked';
-  const episodes = Math.max(0, Number(entry.episodes) || 0);
-  const episodesWatched = Math.max(0, Number(entry.episodesWatched) || 0);
-  return {
-    id,
-    title: String(entry.title || 'Untitled'),
-    titleEnglish: String(entry.titleEnglish || ''),
-    cover: String(entry.cover || ''),
-    banner: String(entry.banner || ''),
-    episodes,
-    status,
-    episodesWatched,
-    language: entry.language === 'dub' ? 'dub' : 'sub',
-    rating: Math.min(Math.max(Number(entry.rating) || 0, 0), 10),
-    dateAdded: Number(entry.dateAdded) || Date.now(),
-    lastWatched: Number(entry.lastWatched) || 0,
-    completedAt: Number(entry.completedAt) || 0,
-    notes: String(entry.notes || ''),
-    genres: Array.isArray(entry.genres) ? entry.genres.map(String) : [],
-    year: Number(entry.year) || 0,
-    anilistId: Number(entry.anilistId || id) || id,
-    sessionLog: Array.isArray(entry.sessionLog)
-      ? entry.sessionLog.map((item) => Number(item) || 0).filter(Boolean)
-      : [],
-    averageScore: Number(entry.averageScore) || 0,
-  };
-}
+describe("P2: normalizeEntry idempotence & totality", () => {
+  it("normalizing twice equals normalizing once (valid input)", () => {
+    fc.assert(
+      fc.property(arbMediaEntry, (entry) => {
+        const once = normalizeEntry(entry);
+        const twice = normalizeEntry(once);
+        expect(twice).toEqual(once);
+      }),
+      { numRuns: 200 },
+    );
+  });
 
-// Deep equality helper for comparing normalized entries
-function deepEqual(a, b) {
-  if (a === b) return true;
-  if (a == null || b == null) return false;
-  if (typeof a !== 'object' || typeof b !== 'object') return false;
-  
-  const keysA = Object.keys(a);
-  const keysB = Object.keys(b);
-  if (keysA.length !== keysB.length) return false;
-  
-  for (const key of keysA) {
-    if (!keysB.includes(key)) return false;
-    if (!deepEqual(a[key], b[key])) return false;
-  }
-  return true;
-}
+  it("normalizing twice equals normalizing once (malformed input)", () => {
+    fc.assert(
+      fc.property(arbMalformedEntry, (entry) => {
+        const once = normalizeEntry(entry);
+        const twice = normalizeEntry(once);
+        expect(twice).toEqual(once);
+      }),
+      { numRuns: 200 },
+    );
+  });
 
-describe('Property P2: Entry normalization is idempotent', () => {
-  it(
-    'should produce the same result when normalizeEntry is applied twice',
-    () => {
-      fc.assert(
-        fc.property(arbMalformedEntry, (entry) => {
-          // Apply normalizeEntry once
-          const result1 = normalizeEntry(entry);
-          
-          // Apply normalizeEntry again
-          const result2 = normalizeEntry(result1);
-          
-          // Verify deep equality
-          expect(deepEqual(result1, result2)).toBe(true);
-        }),
-        { numRuns: 100 }
-      );
-    }
-  );
+  it("always returns a complete, well-typed entry", () => {
+    fc.assert(
+      fc.property(arbMalformedEntry, (entry) => {
+        const n = normalizeEntry(entry);
+        REQUIRED_KEYS.forEach((k) => expect(n).toHaveProperty(k));
+        expect(["movie", "tv"]).toContain(n.mediaType);
+        expect([...STATUS_OPTIONS, "untracked"]).toContain(n.status);
+        expect(n.rating).toBeGreaterThanOrEqual(0);
+        expect(n.rating).toBeLessThanOrEqual(10);
+        expect(n.season).toBeGreaterThanOrEqual(1);
+        expect(n.episode).toBeGreaterThanOrEqual(1);
+        expect(Array.isArray(n.genreIds)).toBe(true);
+        expect(Array.isArray(n.sessionLog)).toBe(true);
+        expect(typeof n.title).toBe("string");
+        expect(n.title.length).toBeGreaterThan(0);
+        expect(n.key).toBe(`${n.mediaType}-${n.id}`);
+      }),
+      { numRuns: 200 },
+    );
+  });
 });

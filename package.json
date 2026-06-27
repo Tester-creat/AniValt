@@ -1,7 +1,7 @@
 {
-  "name": "anivault",
+  "name": "cinevault",
   "version": "1.0.0",
-  "description": "Privacy-first browser-based anime streaming and tracking platform",
+  "description": "Privacy-first browser-based movies, TV series, and animation streaming and tracking platform",
   "type": "module",
   "scripts": {
     "test": "vitest run",

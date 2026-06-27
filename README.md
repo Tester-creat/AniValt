@@ -1,161 +1,100 @@
-# AniVault — Your Private Stream
+# CineVault — Your Private Cinema
 
-AniVault is a privacy-first, offline-capable anime streaming and tracking platform that runs entirely in your browser. No accounts, no servers, no subscriptions — your library lives in `localStorage` and goes wherever you do.
+CineVault is a privacy-first, premium **movies, TV series & animation** streaming and tracking platform that runs entirely in your browser. No accounts, no backend, no subscriptions — your library lives in `localStorage` and goes wherever you do. The interface is a fully Netflix-style experience: a cinematic auto-rotating hero billboard, hover-scaling carousels, rich detail pages, and an in-app player.
+
+> **Animation, not anime.** Catalog and rows are powered by TMDB's animation genre (animated movies & series) — not an anime-specific source.
+
+---
+
+## Setup (60 seconds)
+
+1. Get a **free** TMDB API key: https://www.themoviedb.org/settings/api → request a **v3 "API Key"**.
+2. Run the app locally (see *How to run*) and open it.
+3. Click the **gear / Settings** icon, paste your key, and save. The key is stored locally in your browser only.
+
+That's it — the home page fills with trending titles immediately.
 
 ---
 
 ## Features
 
 ### Streaming & Playback
-- **4 streaming providers** — MegaPlay, Cinetaro, VidPlus, and Anikoto, all using AniList IDs
-- **Auto-provider fallback** — if the active provider fails to load within 30 seconds, the next provider is tried automatically
-- **Manual provider switching** — cycle through providers with the provider button in the watch view
-- **Auto-next episode** — automatically advances to the next episode when playback ends
-- **Fullscreen persistence** — fullscreen mode is preserved across episode switches (Fullscreen API)
-- **Sub / Dub toggle** — switch audio language instantly on any title
-- **Fallback mode** — if all providers fail, a manual tracking screen appears with a HiAnime search link
+- **4 streaming providers** — VidLink, VidSrc, 2Embed, and AutoEmbed, all keyed by TMDB ID
+- **Auto-provider fallback** — if a provider fails to load within 30 seconds, the next is tried automatically
+- **Manual provider switching** — cycle providers from the watch view
+- **Movies & episodes** — single embed for movies; season + episode selector for series
+- **Auto-next episode** — advances to the next episode when playback ends
+- **Fullscreen persistence** — fullscreen is preserved across episode switches
 
-### Library Management
-- **Offline-first** — your entire library is stored in `localStorage` under key `anivault_v2`
-- **Status tracking** — Watching, Completed, Queued, Plan to Watch, Paused, Dropped, Untracked
-- **Episode progress** — tracks episodes watched per title and updates status automatically on completion
-- **Rating system** — 1–10 score with labels (Average, Good, Masterpiece, etc.)
-- **Notes field** — free-text notes per entry, saved on blur
+### Library & Tracking
+- **Offline-first** — your library is stored in `localStorage` under `cinevault_v1`
+- **Status tracking** — Watching, Completed, Watchlist, Paused, Dropped
+- **Progress** — per-series season/episode progress; movies mark watched on completion
+- **Rating system** — 1–10 score with labels
+- **Notes** — free-text notes per title
 - **Export / Import** — full JSON backup and restore
 
-### Discovery
-- **AniList browse** — Seasonal, Top Rated, Most Popular, and 15 genre filters via AniList GraphQL
-- **AniList search** — live search with 350 ms debounce, results land without disrupting your typing
-- **Recommendation rows** — "Because You Watched X", "Trending For You", "Recommended For You" built from your own library data
+### Discovery (TMDB)
+- **Home** — Trending, Popular Movies, Top Rated, Now Playing, Popular Series, Animation, and per-genre rows
+- **Movies / TV Shows / Animation** — dedicated pages with curated rows
+- **Search** — live multi-search (movies + series) with 350 ms debounce
+- **Detail pages** — backdrop, overview, cast, trailer, genres, similar titles, and seasons for series
+- **Recommendations** — "Because you watched…", trending, and genre-based rows built from your own library
 
-### Watch Order
-- Franchise relations fetched from AniList (Sequel, Prequel, Side Story, Spin-off, etc.)
-- Sort by recommended watch order or release date
-- Click any related title to jump straight into it
+### Stats
+- Totals, status breakdown donut, a watch-activity heatmap, and top genres — all from your local data.
 
 ### Keyboard Shortcuts (Watch View)
 | Key | Action |
 |---|---|
-| `←` / `→` | Previous / Next episode |
+| `←` / `→` | Previous / Next episode (series) |
 | `Shift+N` | Next episode |
-| `Shift+P` | Previous episode |
-| `M` | Mark current episode watched |
+| `Shift+P` | Switch provider |
 | `F` | Toggle fullscreen |
-| `Space` | Focus player iframe (passes play/pause to video) |
-| `Escape` | Close overlay or exit watch view |
+| `Esc` | Back |
 
 ---
 
-## Getting Started
+## How to run
 
-AniVault is a static site — no build step required.
+This is a static site — no build step.
 
-### Local Development
 ```bash
-# Serve with any static file server, e.g.:
+# Option A (Node)
 npx serve .
-# or
+
+# Option B (Python)
 python3 -m http.server 8080
-```
-Open `http://localhost:8080` in your browser.
-
-### Deploy to Netlify
-The included `netlify.toml` configures security headers automatically. Push to a repo connected to Netlify and it deploys in one click.
-
----
-
-## Project Structure
-
-```
-anivault/
-├── index.html        # Single-page shell — minimal, no framework
-├── app.js            # All application logic (~2 900 lines, vanilla JS)
-├── styles.css        # Full design system and responsive layout
-├── netlify.toml      # Deployment config + security headers
-├── package.json      # Dev tooling (vitest + fast-check for property tests)
-├── tests/            # Property-based and unit test suite
-└── README.md         # This file
+# then open http://localhost:8080
 ```
 
----
+## Tests
 
-## Architecture
-
-AniVault is intentionally framework-free. The entire UI is re-rendered via `innerHTML` on state changes, with targeted DOM updates for performance-sensitive areas (episode list, rating widget, watch order panel).
-
-### State
-- `userData` — the library, keyed by AniList ID, persisted to `localStorage`
-- `uiState` — ephemeral UI state (active tab, browse/search results, watch controls)
-- `currentWatchId` / `currentEpisode` — active watch session
-
-### Rendering
-- `renderApp()` — full re-render into `#app`; called on major state changes
-- `paintEpisodeList()` — partial DOM update for the episode panel (avoids re-rendering the sidebar)
-- `renderRatingComponent()` / `renderWatchOrder()` — targeted updates for specific containers
-- `afterRender()` — post-render hook for focus restoration, scroll sync, browse auto-load
-
-### Data Flow
-```
-User Action → handleClick / handleInput / handleChange
-    → state mutation
-    → renderApp() or partial update
-    → afterRender()
+```bash
+npm install
+npm test
 ```
 
-### External APIs
-- **AniList GraphQL** (`https://graphql.anilist.co`) — anime metadata, search, browse, episode thumbnails, franchise relations
-- **MegaPlay** (`https://megaplay.buzz/stream/ani/{id}/{episode}/{lang}`) — embedded stream player
-- **Cinetaro** (`https://api.cinetaro.buzz/embed/anime/{id}/1/{episode}?type={lang}`) — embedded stream player
-- **VidPlus** (`https://player.vidplus.to/embed/anime/{id}/{episode}?dub={bool}`) — embedded stream player
-- **Anikoto** (`https://anikoto.to/stream/s-2/{embedId}/{lang}`) — requires async embed ID lookup via `https://anikoto.to/api/episode`
+Property-based tests (vitest + fast-check) cover provider URL validity, entry
+normalization idempotence, library round-trips, search debounce, and status
+coercion.
 
 ---
 
-## Known Limitations
+## Tech
 
-| Feature | Status | Notes |
-|---|---|---|
-| Resume timestamp | Not available | MegaPlay doesn't expose playback time via postMessage |
-| Playback speed | Not available | Cross-origin iframe; video element inaccessible |
-| Picture-in-Picture | Not available | Requires direct video element access |
-| Volume memory | Not available | MegaPlay iframe controls its own volume |
-| Episode thumbnails on hover | Partial | Uses AniList `streamingEpisodes` data when available |
+- Vanilla JS single-page app, zero dependencies at runtime
+- TMDB v3 REST API for all catalog data and images
+- TMDB-ID embed providers for playback
+- `localStorage` for the entire library and settings
 
----
+## Disclaimer
 
-## Known Issues Fixed (this revision)
-
-| Bug | Root Cause | Fix |
-|---|---|---|
-| Search input loses focus on every keystroke | `scheduleAniListSearch()` called `queueRender()` immediately, creating a second RAF render after `focusInputId` was already cleared | Removed immediate `queueRender()` calls from `scheduleAniListSearch()`; callers already trigger `renderApp()` |
-| Episode group selector doesn't stay sticky | `.watch-sidebar` had `overflow: hidden`, which prevents `position: sticky` on any descendant | Changed `.watch-sidebar` to `overflow: visible`; flex layout handles clipping |
-| Rating / status bar not locked to sidebar bottom | `position: sticky; bottom: 0` on a flex sibling of the scroll container has no effect | Changed to `flex-shrink: 0`; `flex: 1` on the body scroller pushes the bar to the bottom naturally |
-| Status picker dropdown clipped by adjacent cards | `.discover-card:hover` had no `z-index`, so sibling cards could overlay the dropdown | Added `z-index: 20` to `.discover-card:hover` and bumped `.status-picker` to `z-index: 500` |
-| Fullscreen lost on episode switch | `renderApp()` destroys and recreates the iframe; browser exits fullscreen | Detect fullscreen before render, exit gracefully, re-enter via Fullscreen API after RAF |
-| Missing keyboard shortcuts | `handleKeydown` only handled arrows and M | Added F (fullscreen), Shift+N (next), Shift+P (prev), Space (focus player) |
-
----
-
-## Configuration
-
-All user data is stored in `localStorage` under the key `anivault_v2`. Clear this key to reset the app.
-
-The app respects a `data-theme` attribute on `<html>` for light/dark mode. Theme preference is persisted inside the library data under `__meta.theme`.
-
----
-
-## Security
-
-The `netlify.toml` sets:
-- `X-Frame-Options: SAMEORIGIN`
-- `X-Content-Type-Options: nosniff`
-- `Referrer-Policy: strict-origin-when-cross-origin`
-- `Permissions-Policy` restricting geolocation, microphone, and camera
-
-No analytics, no tracking, no external dependencies except Google Fonts and the AniList API.
-
----
+CineVault is a personal, self-hosted front-end. It stores no data on any server
+and ships no media. Catalog metadata comes from TMDB; playback is delegated to
+third-party embed providers that you choose to enable. You are responsible for
+complying with the laws and terms of service applicable in your jurisdiction.
 
 ## License
 
-See `LICENSE` for terms.
+See [LICENSE](LICENSE).

@@ -1,2863 +1,1482 @@
-﻿/* RESET */
-const STORAGE_KEY = "anivault_v2";
-const NAV_TABS = ["home", "library", "browse", "search", "stats"];
-const STATUS_OPTIONS = [
-  "watching",
-  "completed",
-  "queued",
-  "plan-to-watch",
-  "dropped",
-  "paused",
-  "untracked",
-];
+/* ==========================================================================
+   CineVault — premium, privacy-first movies / TV / animation streaming + tracking
+   Vanilla JS, zero runtime dependencies. Data: TMDB. Playback: TMDB-ID embeds.
+   ========================================================================== */
+
+"use strict";
+
+/* ------------------------------------------------------------------ config */
+const APP_NAME = "CineVault";
+const STORAGE_KEY = "cinevault_v1";
+const SETTINGS_KEY = "cinevault_settings";
+
+const TMDB_BASE = "https://api.themoviedb.org/3";
+const IMG_BASE = "https://image.tmdb.org/t/p";
+const YT_BASE = "https://www.youtube.com/embed/";
+const ANIMATION_GENRE = 16;
+
+/* Site-wide TMDB v3 key — works out of the box for every visitor.
+   (Users can still override it with their own key in Settings.) */
+const HARDCODED_TMDB_KEY = "5427ba9d67c932c36943a19db08617d1";
+let TMDB_API_KEY = "";
+
+const NAV_TABS = ["home", "movies", "tv", "animation", "mylist"];
+const NAV_LABELS = { home: "Home", movies: "Movies", tv: "TV Shows", animation: "Animation", mylist: "My List", search: "Search", stats: "Stats" };
+
+const STATUS_OPTIONS = ["watching", "completed", "watchlist", "paused", "dropped"];
 const STATUS_LABELS = {
-  watching: "Watching",
-  completed: "Completed",
-  queued: "In Queue",
-  "plan-to-watch": "Plan to Watch",
-  dropped: "Dropped",
-  paused: "Paused",
-  untracked: "Untracked",
+  watching: "Watching", completed: "Completed", watchlist: "Watchlist",
+  paused: "Paused", dropped: "Dropped", untracked: "Untracked",
 };
-const TOAST_TITLES = {
-  success: "Saved",
-  error: "Something went wrong",
-  info: "AniVault",
+const TOAST_TITLES = { success: "Success", error: "Something went wrong", info: "Heads up" };
+
+const STATIC_GENRES = {
+  28: "Action", 12: "Adventure", 16: "Animation", 35: "Comedy", 80: "Crime",
+  99: "Documentary", 18: "Drama", 10751: "Family", 14: "Fantasy", 36: "History",
+  27: "Horror", 10402: "Music", 9648: "Mystery", 10749: "Romance", 878: "Science Fiction",
+  10770: "TV Movie", 53: "Thriller", 10752: "War", 37: "Western",
+  10759: "Action & Adventure", 10762: "Kids", 10763: "News", 10764: "Reality",
+  10765: "Sci-Fi & Fantasy", 10766: "Soap", 10767: "Talk", 10768: "War & Politics",
 };
-const BROWSE_GENRES = [
-  "Action",
-  "Adventure",
-  "Comedy",
-  "Drama",
-  "Fantasy",
-  "Horror",
-  "Mecha",
-  "Mystery",
-  "Psychological",
-  "Romance",
-  "Sci-Fi",
-  "Slice of Life",
-  "Sports",
-  "Supernatural",
-  "Thriller",
-];
+const GENRE_MAP = { ...STATIC_GENRES }; // augmented from TMDB at runtime
 
-const SEARCH_QUERY = `query ($search: String, $page: Int, $perPage: Int) {
-  Page(page: $page, perPage: $perPage) {
-    media(search: $search, type: ANIME, sort: [SEARCH_MATCH]) {
-      id title { romaji english } coverImage { large } bannerImage
-      episodes genres seasonYear averageScore status
-    }
-  }
-}`;
-
-const BROWSE_QUERY = `query (
-  $page: Int, $perPage: Int, $sort: [MediaSort],
-  $season: MediaSeason, $seasonYear: Int, $genre: String
-) {
-  Page(page: $page, perPage: $perPage) {
-    media(
-      type: ANIME, sort: $sort, season: $season,
-      seasonYear: $seasonYear, genre: $genre
-    ) {
-      id title { romaji english } coverImage { large } bannerImage
-      episodes genres seasonYear averageScore status
-    }
-  }
-}`;
-
-const EPISODE_DATA_QUERY = `query ($id: Int) {
-  Media(id: $id) { duration streamingEpisodes { title thumbnail } }
-}`;
-
-const FRANCHISE_RELATIONS_QUERY = `query ($id: Int) {
-  Media(id: $id, type: ANIME) {
-    title { romaji english }
-    format
-    seasonYear
-    startDate { year month day }
-    coverImage { large }
-    averageScore
-    episodes
-    status
-    relations { edges {
-      relationType
-      node {
-        id title { romaji english } coverImage { large }
-        type format seasonYear startDate { year month day }
-        episodes status averageScore
-      }
-    } }
-  }
-}`;
-
-const WATCH_ORDER_RELATIONS = new Set([
-  "PREQUEL", "SEQUEL", "SIDE_STORY", "ALTERNATIVE",
-  "SPIN_OFF", "PARENT", "COMPILATION", "CONTAINS"
-]);
-
-const WATCH_ORDER_PRIORITY = {
-  PREQUEL: 1, PARENT: 2, current: 3, SEQUEL: 4,
-  SIDE_STORY: 5, SPIN_OFF: 6, CONTAINS: 7,
-  COMPILATION: 8, ALTERNATIVE: 9
+/* Rows rendered per page. type: media type the endpoint returns. */
+const PAGE_ROWS = {
+  home: [
+    { id: "trending", title: "Trending Now", path: "/trending/all/week" },
+    { id: "popMovies", title: "Popular Movies", path: "/movie/popular", type: "movie" },
+    { id: "popTv", title: "Popular Series", path: "/tv/popular", type: "tv" },
+    { id: "topMovies", title: "Top Rated Movies", path: "/movie/top_rated", type: "movie" },
+    { id: "nowPlaying", title: "In Theaters", path: "/movie/now_playing", type: "movie" },
+    { id: "animation", title: "Animation", path: "/discover/movie", type: "movie", params: { with_genres: ANIMATION_GENRE, sort_by: "popularity.desc" } },
+    { id: "onAir", title: "On The Air", path: "/tv/on_the_air", type: "tv" },
+    { id: "action", title: "Action & Adventure", path: "/discover/movie", type: "movie", params: { with_genres: "28,12", sort_by: "popularity.desc" } },
+    { id: "scifi", title: "Sci-Fi", path: "/discover/movie", type: "movie", params: { with_genres: 878, sort_by: "popularity.desc" } },
+  ],
+  movies: [
+    { id: "popMovies", title: "Popular", path: "/movie/popular", type: "movie" },
+    { id: "topMovies", title: "Top Rated", path: "/movie/top_rated", type: "movie" },
+    { id: "nowPlaying", title: "Now Playing", path: "/movie/now_playing", type: "movie" },
+    { id: "upcoming", title: "Coming Soon", path: "/movie/upcoming", type: "movie" },
+    { id: "mAction", title: "Action", path: "/discover/movie", type: "movie", params: { with_genres: 28, sort_by: "popularity.desc" } },
+    { id: "mComedy", title: "Comedy", path: "/discover/movie", type: "movie", params: { with_genres: 35, sort_by: "popularity.desc" } },
+    { id: "mDrama", title: "Drama", path: "/discover/movie", type: "movie", params: { with_genres: 18, sort_by: "popularity.desc" } },
+    { id: "mHorror", title: "Horror", path: "/discover/movie", type: "movie", params: { with_genres: 27, sort_by: "popularity.desc" } },
+    { id: "mScifi", title: "Science Fiction", path: "/discover/movie", type: "movie", params: { with_genres: 878, sort_by: "popularity.desc" } },
+  ],
+  tv: [
+    { id: "popTv", title: "Popular", path: "/tv/popular", type: "tv" },
+    { id: "topTv", title: "Top Rated", path: "/tv/top_rated", type: "tv" },
+    { id: "onAir", title: "On The Air", path: "/tv/on_the_air", type: "tv" },
+    { id: "airToday", title: "Airing Today", path: "/tv/airing_today", type: "tv" },
+    { id: "tDrama", title: "Drama", path: "/discover/tv", type: "tv", params: { with_genres: 18, sort_by: "popularity.desc" } },
+    { id: "tCrime", title: "Crime", path: "/discover/tv", type: "tv", params: { with_genres: 80, sort_by: "popularity.desc" } },
+    { id: "tSciFi", title: "Sci-Fi & Fantasy", path: "/discover/tv", type: "tv", params: { with_genres: 10765, sort_by: "popularity.desc" } },
+    { id: "tReality", title: "Reality", path: "/discover/tv", type: "tv", params: { with_genres: 10764, sort_by: "popularity.desc" } },
+  ],
+  animation: [
+    { id: "aMovies", title: "Animated Movies", path: "/discover/movie", type: "movie", params: { with_genres: ANIMATION_GENRE, sort_by: "popularity.desc" } },
+    { id: "aTv", title: "Animated Series", path: "/discover/tv", type: "tv", params: { with_genres: ANIMATION_GENRE, sort_by: "popularity.desc" } },
+    { id: "aTop", title: "Top Rated Animation", path: "/discover/movie", type: "movie", params: { with_genres: ANIMATION_GENRE, sort_by: "vote_average.desc", "vote_count.gte": 500 } },
+    { id: "aFamily", title: "Family Animation", path: "/discover/movie", type: "movie", params: { with_genres: `${ANIMATION_GENRE},10751`, sort_by: "popularity.desc" } },
+    { id: "aTvTop", title: "Best Animated Series", path: "/discover/tv", type: "tv", params: { with_genres: ANIMATION_GENRE, sort_by: "vote_average.desc", "vote_count.gte": 200 } },
+  ],
 };
 
-let userData = {};
-let currentTab = "home";
-let previousTab = "home";
-let currentWatchId = null;
-let currentEpisode = 1;
-let currentEpisodeGroupIndex = 0;
-const episodeCache = {};
-const franchiseCache = {};
-const episodeEmbedCache = {};
-let currentWatchOrderSort = "release";
-let watchViewRequestToken = 0;
+/* ------------------------------------------------------------------- state */
+const catalog = {}; // page -> { status, rows:[{id,title,items}], recRows:[] }
+NAV_TABS.concat(["home"]).forEach((p) => { catalog[p] = { status: "idle", rows: [], recRows: [] }; });
+
+const mediaIndex = {};   // key -> normalized media (everything we've seen)
+const detailCache = {};  // key -> full detail object
+const seasonCache = {};  // `${key}-${season}` -> { episodes:[...] }
+const recCache = {};     // key -> [media]
+
+let userData = {};       // library, keyed by `${mediaType}-${id}`
+let settings = { tmdbKey: "", theme: "dark", region: "US", autoNext: true };
 
 const uiState = {
-  theme: "dark",
-  accentColor: "#7c3aed",
-  compactMode: false,
-  reducedMotion: false,
-  colorIntensity: 100,
-  compactView: false,
-  disableAnimations: false,
-  navMenuOpen: false,
-  navSearchOpen: false,
-  focusInputId: "",
-  inlineStatusPicker: null,
-  volume: 1.0,
-  library: { filter: "all", sort: "default", query: "" },
-  browse: {
-    mode: "seasonal", genre: "Action", title: "This Season",
-    subtitle: "", results: [], loading: false, error: "",
-    requestId: 0, initialized: false,
-    page: 1, hasMore: true
-  },
-  search: { query: "", results: [], loading: false, error: "", requestId: 0 },
-  watch: {
-    forceFallback: false, sidebarCollapsed: false,
-    streamLoaded: false, lastEndedKey: "", episodeGroupIndex: 0,
-    currentProvider: 0
-  },
-  overlay: null
+  tab: "home",
+  overlay: null,                                  // { type:"detail"|"settings", key }
+  watch: null,                                    // { key, season, episode, provider, streamLoaded, trailer }
+  detailLoading: false,
+  search: { query: "", results: [], status: "idle", focus: false },
+  library: { filter: "all", query: "", sort: "recent" },
 };
+let previousTab = "home";
 
-let searchTimer = 0;
-let streamFallbackTimer = 0;
-let completionReturnTimer = 0;
-
-/* HERO CAROUSEL STATE */
-const heroState = { current: 0, total: 0, timer: null, rafId: null, start: null, dur: 7000 };
-
-/* FULLSCREEN API HELPERS */
-function isFullscreen() {
-  return !!(
-    document.fullscreenElement ||
-    document.webkitFullscreenElement ||
-    document.mozFullScreenElement
-  );
-}
-function requestFullscreenOn(element) {
-  if (!element) return;
-  const fn = element.requestFullscreen || element.webkitRequestFullscreen || element.mozRequestFullScreen;
-  if (fn) fn.call(element).catch(() => {});
-}
-function exitFullscreenSafe() {
-  const fn = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen;
-  if (fn && isFullscreen()) fn.call(document).catch(() => {});
-}
-function toggleWatchFullscreen() {
-  const container = document.querySelector(".watch-player__frame");
-  if (!container) return;
-  if (isFullscreen()) exitFullscreenSafe(); else requestFullscreenOn(container);
-}
+const heroState = { current: 0, total: 0, timer: null, items: [] };
+let searchTimer = null;
+let providerTimer = null;
 
 const app = document.getElementById("app");
 const toastZone = document.getElementById("toastZone");
 
-/* TOKENS */
-function normalizeEntry(entry) {
-  if (!entry || typeof entry !== "object") return null;
-  const id = Number(entry.id || entry.anilistId);
+/* --------------------------------------------------------------- utilities */
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+function clamp(value, min, max) { return Math.min(Math.max(value, min), max); }
+function safeParse(value) { try { return JSON.parse(value); } catch { return null; } }
+function queueRender() { window.requestAnimationFrame(() => renderApp()); }
+
+function img(path, size = "w500") {
+  if (!path) return "";
+  if (/^https?:/.test(path)) return path;
+  return `${IMG_BASE}/${size}${path}`;
+}
+function mediaKey(type, id) { return `${type}-${id}`; }
+function genreName(id) { return GENRE_MAP[id] || STATIC_GENRES[id] || ""; }
+function genreNames(ids, limit = 3) { return (ids || []).map(genreName).filter(Boolean).slice(0, limit); }
+
+function formatYear(media) { return media.year ? String(media.year) : ""; }
+function formatVote(v) { return v ? Number(v).toFixed(1) : ""; }
+function typeLabel(type) { return type === "tv" ? "Series" : "Movie"; }
+function formatCount(value, noun) { return `${value} ${noun}${value === 1 ? "" : "s"}`; }
+function formatRuntime(min) {
+  if (!min) return "";
+  const h = Math.floor(min / 60); const m = min % 60;
+  return h ? `${h}h ${m}m` : `${m}m`;
+}
+function formatDate(ts) {
+  if (!ts) return "";
+  return new Date(ts).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+function getRatingLabel(score) {
+  if (!score) return "";
+  if (score >= 9) return "Masterpiece";
+  if (score >= 8) return "Great";
+  if (score >= 7) return "Good";
+  if (score >= 5) return "Okay";
+  if (score >= 3) return "Weak";
+  return "Bad";
+}
+
+/* ----------------------------------------------------------- normalization */
+function pickMediaType(raw, forced) {
+  if (forced === "movie" || forced === "tv") return forced;
+  if (raw.media_type === "movie" || raw.media_type === "tv") return raw.media_type;
+  if (raw.title || raw.release_date) return "movie";
+  if (raw.name || raw.first_air_date) return "tv";
+  return "movie";
+}
+
+function yearFromDate(date) {
+  if (!date || typeof date !== "string") return 0;
+  const y = Number(date.slice(0, 4));
+  return Number.isFinite(y) ? y : 0;
+}
+
+/* Turn a raw TMDB list/detail object into the canonical media shape. */
+function normalizeMedia(raw, forced) {
+  if (!raw || typeof raw !== "object") return null;
+  if (raw.media_type === "person") return null;
+  const id = Number(raw.id);
   if (!Number.isFinite(id) || id <= 0) return null;
-  const status = STATUS_OPTIONS.includes(entry.status) ? entry.status : "untracked";
-  const episodes = Math.max(0, Number(entry.episodes) || 0);
-  const episodesWatched = Math.max(0, Number(entry.episodesWatched) || 0);
-  return {
+  const mediaType = pickMediaType(raw, forced);
+  const genreIds = Array.isArray(raw.genre_ids)
+    ? raw.genre_ids.map(Number).filter(Number.isFinite)
+    : Array.isArray(raw.genres)
+      ? raw.genres.map((g) => Number(g.id)).filter(Number.isFinite)
+      : [];
+  const media = {
     id,
-    title: String(entry.title || "Untitled"),
-    titleEnglish: String(entry.titleEnglish || ""),
-    cover: String(entry.cover || ""),
-    banner: String(entry.banner || ""),
-    episodes,
+    mediaType,
+    key: mediaKey(mediaType, id),
+    title: String(raw.title || raw.name || "Untitled"),
+    overview: String(raw.overview || ""),
+    poster: raw.poster_path || "",
+    backdrop: raw.backdrop_path || "",
+    year: yearFromDate(raw.release_date || raw.first_air_date),
+    voteAverage: Number.isFinite(Number(raw.vote_average)) ? Number(raw.vote_average) : 0,
+    genreIds,
+    popularity: Number(raw.popularity) || 0,
+  };
+  mediaIndex[media.key] = media;
+  return media;
+}
+
+/* Coerce any (possibly malformed) object into a valid, idempotent library entry. */
+function normalizeEntry(entry) {
+  const src = entry && typeof entry === "object" ? entry : {};
+  const id = Number(src.id);
+  const mediaType = src.mediaType === "tv" ? "tv" : "movie";
+  const safeId = Number.isFinite(id) && id > 0 ? id : 0;
+  const status = STATUS_OPTIONS.includes(src.status) ? src.status : (src.status === "untracked" ? "untracked" : "watchlist");
+  const rating = clamp(Math.round(Number(src.rating) || 0), 0, 10);
+  const genreIds = Array.isArray(src.genreIds) ? src.genreIds.map(Number).filter(Number.isFinite) : [];
+  const num = (v, min = 0) => { const n = Number(v); return Number.isFinite(n) && n >= min ? Math.floor(n) : min; };
+  return {
+    id: safeId,
+    mediaType,
+    key: mediaKey(mediaType, safeId),
+    title: String(src.title || "Untitled"),
+    overview: typeof src.overview === "string" ? src.overview : "",
+    poster: typeof src.poster === "string" ? src.poster : "",
+    backdrop: typeof src.backdrop === "string" ? src.backdrop : "",
+    year: num(src.year),
+    voteAverage: Number.isFinite(Number(src.voteAverage)) ? Number(src.voteAverage) : 0,
+    genreIds,
     status,
-    episodesWatched,
-    language: entry.language === "dub" ? "dub" : "sub",
-    rating: clamp(Number(entry.rating) || 0, 0, 10),
-    dateAdded: Number(entry.dateAdded) || Date.now(),
-    lastWatched: Number(entry.lastWatched) || 0,
-    completedAt: Number(entry.completedAt) || 0,
-    notes: String(entry.notes || ""),
-    genres: Array.isArray(entry.genres) ? entry.genres.map(String) : [],
-    year: Number(entry.year) || 0,
-    anilistId: Number(entry.anilistId || id) || id,
-    sessionLog: Array.isArray(entry.sessionLog) ? entry.sessionLog.map((item) => Number(item) || 0).filter(Boolean) : [],
-    averageScore: Number(entry.averageScore) || 0
+    rating,
+    notes: typeof src.notes === "string" ? src.notes : "",
+    dateAdded: num(src.dateAdded) || Date.now(),
+    lastWatched: num(src.lastWatched),
+    completedAt: num(src.completedAt),
+    season: Math.max(1, num(src.season, 1)),
+    episode: Math.max(1, num(src.episode, 1)),
+    totalSeasons: num(src.totalSeasons),
+    totalEpisodes: num(src.totalEpisodes),
+    watched: Boolean(src.watched),
+    sessionLog: Array.isArray(src.sessionLog) ? src.sessionLog.map(Number).filter((n) => Number.isFinite(n) && n > 0) : [],
   };
 }
 
 function normalizeLibrary(raw) {
-  const next = {};
-  if (!raw || typeof raw !== "object") {
-    next.__meta = { theme: "dark" };
-    return next;
-  }
-  Object.entries(raw).forEach(([key, value]) => {
-    if (key === "__meta") return;
-    const normalized = normalizeEntry(value);
-    if (normalized) next[String(normalized.id)] = normalized;
+  const result = {};
+  if (!raw || typeof raw !== "object") return result;
+  Object.values(raw).forEach((value) => {
+    const entry = normalizeEntry(value);
+    if (entry.id > 0) result[entry.key] = entry;
   });
-  next.__meta = {
-    theme: raw.__meta && raw.__meta.theme === "light" ? "light" : "dark"
-  };
-  return next;
+  return result;
 }
 
-function isAnimeEntry(value) {
-  return Boolean(value && typeof value === "object" && Number.isFinite(Number(value.id)));
-}
-function getAnimeEntries() { return Object.values(userData).filter(isAnimeEntry); }
-function getEntry(id) { return userData[String(id)] || null; }
-function getDisplayTitle(entry) { return entry.titleEnglish || entry.title; }
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-function clamp(value, min, max) { return Math.min(Math.max(value, min), max); }
-function getSeasonFromDate(date = new Date()) {
-  const month = date.getMonth();
-  if (month <= 2) return "WINTER";
-  if (month <= 5) return "SPRING";
-  if (month <= 8) return "SUMMER";
-  return "FALL";
-}
-function getStatusClass(status) {
-  if (status === "paused") return "badge badge--paused";
-  return `badge badge--${status}`;
-}
-function getPlayableEpisodeCount(entry) {
-  /* FIX #6: Use total episode count from AniList. Fall back to episodesWatched+1 so
-     at minimum the user can access the next unwatched episode. For ongoing series
-     (episodes===0 or null) use a sensible fallback so the list isn't stuck at 1. */
-  const total = Number(entry.episodes) || 0;
-  const watched = Number(entry.episodesWatched) || 0;
-  if (total > 0) return total;
-  /* No total known: give at least watched+10 so user can continue exploring */
-  return Math.max(1, watched + 10);
-}
-function getRatingLabel(score) {
-  const labels = {
-    1: "Appalling", 2: "Horrible", 3: "Very Bad", 4: "Bad", 5: "Average",
-    6: "Fine", 7: "Good", 8: "Very Good", 9: "Great", 10: "Masterpiece"
+/* ---------------------------------------------------------------- storage */
+function loadSettings() {
+  const parsed = safeParse(localStorage.getItem(SETTINGS_KEY)) || {};
+  settings = {
+    tmdbKey: typeof parsed.tmdbKey === "string" ? parsed.tmdbKey : "",
+    theme: parsed.theme === "light" ? "light" : "dark",
+    region: typeof parsed.region === "string" ? parsed.region : "US",
+    autoNext: parsed.autoNext !== false,
   };
-  return labels[score] || "Rate this anime";
+  TMDB_API_KEY = HARDCODED_TMDB_KEY || settings.tmdbKey || "";
+  document.documentElement.setAttribute("data-theme", settings.theme);
 }
-function getRatingColor(score) {
-  if (score <= 0) return "";
-  if (score <= 2) return "#ef4444";
-  if (score <= 4) return "#f97316";
-  if (score <= 6) return "#eab308";
-  if (score <= 8) return "#22c55e";
-  return "#a855f7";
+function saveSettings() {
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch {}
 }
-function getStatusChipHtml(status) {
-  return `<span class="${getStatusClass(status)} in-library-chip">&#10003; In Library - ${escapeHtml(STATUS_LABELS[status])}</span>`;
-}
-function getEntryByAnimeId(id) {
-  return Object.values(userData).find((entry) => isAnimeEntry(entry) && Number(entry.id) === Number(id)) || null;
-}
-function parseEpisodeTitle(title) {
-  const raw = String(title || "").trim();
-  if (!raw.toLowerCase().startsWith("episode")) return null;
-  const [left, ...rest] = raw.split(" - ");
-  const number = Number.parseInt(left.replace(/episode\s*/i, "").trim(), 10);
-  if (!Number.isFinite(number)) return null;
-  return { number, name: rest.join(" - ").trim() || `Episode ${number}` };
-}
-function getDateWeight(startDate, seasonYear = 0) {
-  // Use startDate if it has a valid year, otherwise fall back to seasonYear
-  const year = (startDate && startDate.year) ? Number(startDate.year) : Number(seasonYear || 0);
-  if (!year) return Number.POSITIVE_INFINITY;
-  const month = (startDate && startDate.month) ? Number(startDate.month) : 0;
-  const day = (startDate && startDate.day) ? Number(startDate.day) : 0;
-  return year * 10000 + month * 100 + day;
-}
-function formatRelationLabel(item) {
-  if (item.relationType === "current") return "Current";
-  if (item.relationType === "SIDE_STORY") return "Side story";
-  if (item.relationType === "SPIN_OFF") return "Spin off";
-  return String(item.relationType || "")
-    .toLowerCase()
-    .replaceAll("_", " ")
-    .replace(/^\w/, (match) => match.toUpperCase());
-}
-function getFormatBadgeColor(format) {
-  if (format === "MOVIE") return "var(--accent2)";
-  if (format === "OVA" || format === "ONA" || format === "SPECIAL") return "var(--badge-queued)";
-  return "var(--badge-watching)";
-}
-function getProgressPercent(entry) {
-  if (!entry.episodes) return 0;
-  return clamp(Math.round((entry.episodesWatched / entry.episodes) * 100), 0, 100);
-}
-function formatEpisodeLabel(entry) { return `Episode ${entry.episodesWatched || 0} of ${entry.episodes || "?"}`; }
-function formatDate(timestamp) {
-  if (!timestamp) return "Never";
-  return new Date(timestamp).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-}
-function formatCount(value, noun) { return `${value} ${noun}${value === 1 ? "" : "s"}`; }
-function filterByText(entries, query) {
-  const value = query.trim().toLowerCase();
-  if (!value) return entries;
-  return entries.filter((entry) => {
-    const haystack = [entry.title, entry.titleEnglish, entry.notes, ...(entry.genres || [])].join(" ").toLowerCase();
-    return haystack.includes(value);
-  });
-}
-
-/* LAYOUT */
-const VOLUME_KEY = "anivault_volume";
-const SETTINGS_KEY = "anivault_settings";
 function loadData() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
-    userData = normalizeLibrary(raw);
-  } catch (error) {
-    userData = normalizeLibrary({});
-    showToast("Saved data could not be read. AniVault started with an empty library.", "error");
-  }
-  uiState.theme = userData.__meta && userData.__meta.theme === "light" ? "light" : "dark";
-  uiState.volume = parseFloat(localStorage.getItem(VOLUME_KEY) || "1.0");
-  const settings = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
-  uiState.accentColor = settings.accentColor || "#7c3aed";
-  uiState.compactMode = settings.compactMode || false;
-  uiState.reducedMotion = settings.reducedMotion || false;
-  // New settings keys
-  uiState.colorIntensity = (settings.colorIntensity !== undefined) ? Number(settings.colorIntensity) : 100;
-  uiState.compactView    = settings.compactView    || false;
-  uiState.disableAnimations = settings.disableAnimations || false;
-  document.documentElement.style.setProperty("--accent", uiState.accentColor);
-  document.documentElement.style.setProperty("--accent-bright", uiState.accentColor);
-  document.documentElement.style.setProperty("--accent-opacity", String(uiState.colorIntensity / 100));
-  document.documentElement.setAttribute("data-theme", uiState.theme);
-  document.body.classList.toggle("compact-mode", uiState.compactMode);
-  document.body.classList.toggle("reduced-motion", uiState.reducedMotion);
-  document.body.classList.toggle("compact-view", uiState.compactView);
-  document.body.classList.toggle("no-animations", uiState.disableAnimations);
-  reconcileLibrary();
+  userData = normalizeLibrary(safeParse(localStorage.getItem(STORAGE_KEY)) || {});
 }
 function saveData() {
-  userData.__meta = { theme: uiState.theme };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(userData));
-  localStorage.setItem(VOLUME_KEY, String(uiState.volume));
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify({
-    accentColor: uiState.accentColor,
-    compactMode: uiState.compactMode,
-    reducedMotion: uiState.reducedMotion,
-    colorIntensity: uiState.colorIntensity,
-    compactView: uiState.compactView,
-    disableAnimations: uiState.disableAnimations
-  }));
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(userData)); }
+  catch { showToast("Could not save — storage may be full.", "error"); }
 }
-function reconcileLibrary() {
-  let changed = false;
-  getAnimeEntries().forEach((entry) => {
-    if (!STATUS_OPTIONS.includes(entry.status)) {
-      entry.status = "untracked";
-      changed = true;
-    }
-    if (entry.episodes > 0 && entry.episodesWatched >= entry.episodes) {
-      entry.episodesWatched = entry.episodes;
-      if (entry.status !== "completed") {
-        entry.status = "completed";
-        entry.completedAt = entry.completedAt || Date.now();
-        changed = true;
-      }
-    }
-  });
-  if (changed) saveData();
-}
-function toggleTheme() {
-  uiState.theme = uiState.theme === "dark" ? "light" : "dark";
-  document.documentElement.setAttribute("data-theme", uiState.theme);
-  saveData();
-  renderApp();
-}
-function renderTab(tab) {
-  if (!NAV_TABS.includes(tab)) return;
-  currentTab = tab;
-  currentWatchId = null;
-  uiState.overlay = null;
-  uiState.navMenuOpen = false;
-  renderApp();
-}
-function queueRender() { window.requestAnimationFrame(() => renderApp()); }
+function hasKey() { return Boolean(TMDB_API_KEY); }
 
-/* NAV */
+/* library accessors */
+function getEntry(key) { return userData[key] || null; }
+function getEntries() { return Object.values(userData); }
+function getEntriesByStatus(status) { return getEntries().filter((e) => e.status === status); }
+
+/* --------------------------------------------------------------- TMDB API */
+async function tmdbFetch(path, params = {}) {
+  if (!hasKey()) throw new Error("NO_KEY");
+  const url = new URL(TMDB_BASE + path);
+  url.searchParams.set("api_key", TMDB_API_KEY);
+  url.searchParams.set("language", "en-US");
+  if (settings.region) url.searchParams.set("region", settings.region);
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, v);
+  }
+  const res = await fetch(url.toString());
+  if (res.status === 401) throw new Error("BAD_KEY");
+  if (!res.ok) throw new Error(`TMDB request failed (${res.status})`);
+  return res.json();
+}
+
+async function loadGenres() {
+  if (!hasKey()) return;
+  try {
+    const [m, t] = await Promise.all([
+      tmdbFetch("/genre/movie/list"),
+      tmdbFetch("/genre/tv/list"),
+    ]);
+    [...(m.genres || []), ...(t.genres || [])].forEach((g) => { GENRE_MAP[g.id] = g.name; });
+  } catch { /* fall back to STATIC_GENRES */ }
+}
+
+/* Fetch every row for a page in parallel, then render. */
+async function loadPage(page) {
+  const state = catalog[page];
+  if (!state) return;
+  if (state.status === "loading" || state.status === "ready") return;
+  if (!hasKey()) { state.status = "needkey"; renderApp(); return; }
+  state.status = "loading";
+  renderApp();
+  try {
+    const configs = PAGE_ROWS[page] || [];
+    const rows = await Promise.all(configs.map(async (c) => {
+      const data = await tmdbFetch(c.path, c.params || {});
+      const items = (data.results || []).map((r) => normalizeMedia(r, c.type)).filter(Boolean);
+      return { id: c.id, title: c.title, items };
+    }));
+    state.rows = rows.filter((r) => r.items.length);
+    state.status = "ready";
+    renderApp();
+    if (page === "home") loadHomeRecommendations();
+  } catch (err) {
+    state.status = err.message === "BAD_KEY" ? "badkey" : "error";
+    renderApp();
+  }
+}
+
+/* "Because you watched…" rows built from TMDB recommendations for recent titles. */
+async function loadHomeRecommendations() {
+  const recent = getEntries()
+    .filter((e) => e.lastWatched && (e.status === "watching" || e.status === "completed"))
+    .sort((a, b) => b.lastWatched - a.lastWatched)
+    .slice(0, 2);
+  if (!recent.length) return;
+  try {
+    const rows = [];
+    for (const entry of recent) {
+      let items = recCache[entry.key];
+      if (!items) {
+        const data = await tmdbFetch(`/${entry.mediaType}/${entry.id}/recommendations`);
+        items = (data.results || []).map((r) => normalizeMedia(r, r.media_type)).filter(Boolean).slice(0, 18);
+        recCache[entry.key] = items;
+      }
+      if (items.length) rows.push({ id: `rec-${entry.key}`, title: `Because you watched ${entry.title}`, items });
+    }
+    catalog.home.recRows = rows;
+    if (uiState.tab === "home" && !uiState.watch) renderApp();
+  } catch { /* recommendations are best-effort */ }
+}
+
+async function fetchDetail(key) {
+  if (detailCache[key]) return detailCache[key];
+  const media = mediaIndex[key] || getEntry(key);
+  if (!media) throw new Error("Unknown title");
+  const data = await tmdbFetch(`/${media.mediaType}/${media.id}`, {
+    append_to_response: "credits,videos,similar,recommendations",
+  });
+  data._mediaType = media.mediaType;
+  detailCache[key] = data;
+  return data;
+}
+
+async function fetchSeason(key, season) {
+  const cacheKey = `${key}-${season}`;
+  if (seasonCache[cacheKey]) return seasonCache[cacheKey];
+  const media = mediaIndex[key] || getEntry(key);
+  if (!media) return { episodes: [] };
+  const data = await tmdbFetch(`/${media.mediaType}/${media.id}/season/${season}`);
+  seasonCache[cacheKey] = data;
+  return data;
+}
+
+/* Resolve a media object from anything we've indexed or have in the library. */
+function resolveMedia(key) {
+  return mediaIndex[key] || getEntry(key) || null;
+}
+
+/* ----------------------------------------------------------- streaming */
+const STREAM_PROVIDERS = [
+  {
+    name: "VidLink",
+    movie: (id) => `https://vidlink.pro/movie/${id}`,
+    tv: (id, s, e) => `https://vidlink.pro/tv/${id}/${s}/${e}`,
+  },
+  {
+    name: "VidSrc",
+    movie: (id) => `https://vidsrc.to/embed/movie/${id}`,
+    tv: (id, s, e) => `https://vidsrc.to/embed/tv/${id}/${s}/${e}`,
+  },
+  {
+    name: "2Embed",
+    movie: (id) => `https://www.2embed.cc/embed/${id}`,
+    tv: (id, s, e) => `https://www.2embed.cc/embedtv/${id}&s=${s}&e=${e}`,
+  },
+  {
+    name: "AutoEmbed",
+    movie: (id) => `https://player.autoembed.cc/embed/movie/${id}`,
+    tv: (id, s, e) => `https://player.autoembed.cc/embed/tv/${id}/${s}/${e}`,
+  },
+];
+
+function buildStreamUrl(entry, providerIndex = 0, season = 1, episode = 1) {
+  if (!entry || !entry.id) return "";
+  const provider = STREAM_PROVIDERS[providerIndex] || STREAM_PROVIDERS[0];
+  return entry.mediaType === "tv"
+    ? provider.tv(entry.id, season, episode)
+    : provider.movie(entry.id);
+}
+
+/* --------------------------------------------------------------- top nav */
 function renderTopNav() {
   const tabs = NAV_TABS.map((tab) => {
-    const label = tab.charAt(0).toUpperCase() + tab.slice(1);
-    const active = currentTab === tab && !currentWatchId ? "is-active" : "";
-    return `<button type="button" class="tab-link ${active}" data-action="tab" data-tab="${tab}">${label}</button>`;
+    const active = uiState.tab === tab ? "is-active" : "";
+    return `<button type="button" class="nav-link ${active}" data-action="tab" data-tab="${tab}">${NAV_LABELS[tab]}</button>`;
   }).join("");
   return `
-  <header class="topnav">
-    <!-- ShuttleTV-style: single floating pill centered on screen -->
-    <div class="topnav__pill">
-      <!-- Logo: rocket icon + wordmark -->
-      <div class="nav-brand">
-        <span class="nav-brand__icon" aria-hidden="true">🚀</span>
-        <span class="nav-brand__logo">AniVault</span>
-      </div>
-
-      <!-- Nav tabs inline inside the pill -->
-      <nav class="nav-center" aria-label="Primary navigation">${tabs}</nav>
-
-      <!-- Icon actions on the right inside the pill -->
-      <div class="nav-actions">
-        <button type="button" class="nav-pill-icon" data-action="toggle-nav-search" aria-label="Search" title="Search">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        </button>
-        <button type="button" class="nav-pill-icon" data-action="toggle-theme" aria-label="Toggle theme" title="${uiState.theme === "dark" ? "Light mode" : "Dark mode"}">
-          ${uiState.theme === "dark"
-            ? `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`
-            : `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`
-          }
-        </button>
-        <button type="button" class="nav-pill-icon" data-action="open-settings" aria-label="Settings" title="Settings">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-        </button>
-        <button type="button" class="nav-pill-icon nav-pill-icon--more" data-action="toggle-menu" aria-label="More options" title="More">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
-        </button>
-      </div>
-    </div>
-
-    <!-- ⋮ dropdown — appears below the pill when more button is clicked -->
-    <div class="nav-more-dropdown ${uiState.navMenuOpen ? "is-open" : ""}">
-      <button type="button" class="nav-more-item" data-action="export">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-        Export Backup
+  <header class="topbar" id="topbar">
+    <div class="topbar__left">
+      <button type="button" class="brand" data-action="tab" data-tab="home" aria-label="${APP_NAME} home">
+        <span class="brand__mark">CV</span><span class="brand__name">CineVault</span>
       </button>
-      <button type="button" class="nav-more-item" data-action="import">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        Import Backup
-      </button>
+      <nav class="nav-links" aria-label="Primary">${tabs}</nav>
     </div>
-
-    <!-- Search bar — drops below pill when open -->
-    <div class="nav-search-drop ${uiState.navSearchOpen ? "is-open" : ""}">
-      <input id="navSearchInput" type="search" placeholder="Search anime on AniList…" value="${escapeHtml(uiState.search.query)}" aria-label="Search AniList">
-    </div>
-
-    <!-- Mobile/overflow panel -->
-    <div class="nav-mobile-panel ${uiState.navMenuOpen ? "is-open" : ""}">
-      <div class="nav-mobile-panel__card">
-        <div class="nav-mobile-panel__tabs">${tabs}</div>
-        <div class="nav-mobile-panel__actions">
-          <input id="mobileNavSearchInput" class="input" type="search" placeholder="Search AniList" value="${escapeHtml(uiState.search.query)}">
-          <button type="button" class="nav-button" data-action="export">Export Backup</button>
-          <button type="button" class="nav-button" data-action="import">Import Backup</button>
-          <button type="button" class="nav-button" data-action="toggle-theme">Switch to ${uiState.theme === "dark" ? "Light" : "Dark"}</button>
-        </div>
+    <div class="topbar__right">
+      <div class="searchbox">
+        <span class="searchbox__icon" aria-hidden="true">⌕</span>
+        <input id="navSearchInput" class="searchbox__input" type="search" placeholder="Search movies & series"
+          value="${escapeHtml(uiState.search.query)}" aria-label="Search">
       </div>
+      <button type="button" class="icon-btn" data-action="tab" data-tab="stats" title="Your stats" aria-label="Stats">📊</button>
+      <button type="button" class="icon-btn" data-action="open-settings" title="Settings" aria-label="Settings">⚙</button>
     </div>
   </header>`;
 }
-function renderMobileTabs() {
-  if (currentWatchId) return "";
-  return `<nav class="mobile-tabs" aria-label="Mobile navigation">
-    ${NAV_TABS.map((tab) => {
-      const label = tab.charAt(0).toUpperCase() + tab.slice(1);
-      const active = currentTab === tab ? "is-active" : "";
-      return `<button type="button" class="mobile-tab ${active}" data-action="tab" data-tab="${tab}">${label}</button>`;
+
+function renderMobileNav() {
+  const items = [["home", "⌂", "Home"], ["movies", "🎬", "Movies"], ["tv", "📺", "TV"], ["search", "⌕", "Search"], ["mylist", "♥", "My List"]];
+  return `<nav class="mobile-nav" aria-label="Primary mobile">
+    ${items.map(([tab, icon, label]) => {
+      const active = uiState.tab === tab ? "is-active" : "";
+      return `<button type="button" class="mobile-nav__btn ${active}" data-action="tab" data-tab="${tab}">
+        <span class="mobile-nav__icon">${icon}</span><span class="mobile-nav__label">${label}</span></button>`;
     }).join("")}
   </nav>`;
 }
 
-/* ══ HERO CAROUSEL ══════════════════════════════════════════════ */
-function renderHeroCarousel(entries) {
-  if (!entries.length) return "";
-  const items = entries.slice(0, 5);
-  const slides = items.map((entry, i) => {
-    const title = getDisplayTitle(entry);
-    const bg = entry.banner || entry.cover || "";
-    const progress = getProgressPercent(entry);
-    const genres = (entry.genres || []).slice(0, 3);
-    const nextEp = (entry.episodesWatched || 0) + 1;
-    const totalEp = entry.episodes || "?";
-    const desc = entry.notes ? entry.notes : `Continue watching from episode ${nextEp}`;
-    return `<div class="hc-slide${i === 0 ? " is-active" : ""}" data-hc-slide="${i}">
-      ${bg ? `<div class="hc-bg" style="background-image:url('${escapeHtml(bg)}')"></div>` : `<div class="hc-bg hc-bg--fallback"></div>`}
-      <div class="hc-overlay"></div>
-      <div class="hc-overlay2"></div>
-      <div class="hc-content">
-        ${genres.length ? `<div class="hc-genres">${genres.map(g => `<span class="hc-genre-pill">${escapeHtml(g)}</span>`).join("")}</div>` : ""}
-        <div class="hc-title">${escapeHtml(title)}</div>
-        <div class="hc-meta-row">
-          ${entry.averageScore ? `<span class="hc-score">★ ${entry.averageScore}</span><span class="hc-sep"></span>` : ""}
-          <span>Ep ${nextEp} / ${totalEp}</span>
-          ${entry.year ? `<span class="hc-sep"></span><span>${entry.year}</span>` : ""}
-          ${entry.language ? `<span class="hc-sep"></span><span class="hc-lang">${String(entry.language).toUpperCase()}</span>` : ""}
+/* --------------------------------------------------------------- cards */
+function libraryBadge(media) {
+  const entry = getEntry(media.key);
+  if (!entry || entry.status === "untracked") return "";
+  return `<span class="card__badge card__badge--${entry.status}">${STATUS_LABELS[entry.status]}</span>`;
+}
+
+function renderCard(media) {
+  if (!media) return "";
+  const poster = img(media.poster, "w342");
+  const vote = formatVote(media.voteAverage);
+  const genres = genreNames(media.genreIds, 2).join(" • ");
+  const inList = Boolean(getEntry(media.key));
+  return `<article class="card" data-action="open-detail" data-key="${media.key}" tabindex="0" role="button" aria-label="${escapeHtml(media.title)}">
+    <div class="card__media">
+      ${poster ? `<img loading="lazy" src="${poster}" alt="${escapeHtml(media.title)}">` : `<div class="card__noimg">${escapeHtml(media.title)}</div>`}
+      <span class="card__type">${typeLabel(media.mediaType)}</span>
+      ${libraryBadge(media)}
+      <div class="card__hover">
+        <div class="card__hover-actions">
+          <button type="button" class="round-btn round-btn--play" data-action="open-watch" data-key="${media.key}" title="Play" aria-label="Play ${escapeHtml(media.title)}">▶</button>
+          <button type="button" class="round-btn" data-action="toggle-list" data-key="${media.key}" title="${inList ? "In your list" : "Add to My List"}" aria-label="Toggle list">${inList ? "✓" : "+"}</button>
+          <button type="button" class="round-btn" data-action="open-detail" data-key="${media.key}" title="More info" aria-label="More info">ⓘ</button>
         </div>
-        <div class="hc-desc">${escapeHtml(desc)}</div>
-        <div class="hc-progress-track"><div class="hc-progress-fill" style="width:${progress}%"></div></div>
-        <div class="hc-actions">
-          <button type="button" class="hc-btn-primary" data-action="open-watch" data-id="${entry.id}">&#9654; Resume</button>
-          <button type="button" class="hc-btn-secondary" data-action="open-detail" data-id="${entry.id}">Details</button>
+        <div class="card__hover-meta">
+          ${vote ? `<span class="card__score">★ ${vote}</span>` : ""}
+          ${media.year ? `<span>${media.year}</span>` : ""}
         </div>
-      </div>
-    </div>`;
-  }).join("");
-
-  const dots = items.map((_, i) =>
-    `<div class="hc-dot${i === 0 ? " is-active" : ""}" data-hc-dot="${i}"><div class="hc-dot-progress"></div></div>`
-  ).join("");
-
-  const thumbs = items.length > 1 ? `<div class="hc-thumbs">${items.map((entry, i) => {
-    const bg = entry.cover || entry.banner || "";
-    return `<button type="button" class="hc-thumb${i === 0 ? " is-active" : ""}" data-hc-thumb="${i}" aria-label="${escapeHtml(getDisplayTitle(entry))}">${bg ? `<img src="${escapeHtml(bg)}" alt="">` : ""}</button>`;
-  }).join("")}</div>` : "";
-
-  const navBtns = items.length > 1 ? `<button type="button" class="hc-nav hc-nav--prev" id="hcPrev" aria-label="Previous">&#8249;</button><button type="button" class="hc-nav hc-nav--next" id="hcNext" aria-label="Next">&#8250;</button>` : "";
-
-  return `<div class="hero-carousel" id="heroCarousel">
-    ${slides}
-    ${navBtns}
-    <div class="hc-dots">${dots}</div>
-    ${thumbs}
-  </div>`;
-}
-
-function initHeroCarousel() {
-  const carousel = document.getElementById("heroCarousel");
-  if (!carousel) return;
-
-  // Change 7 — Guard against redundant restarts.
-  // If the timer is already running and the carousel DOM has the same number of
-  // slides as the last initialisation, the carousel is already in a good state —
-  // skip the clearInterval / setInterval cycle so unrelated renderApp() calls
-  // (e.g. opening a status picker while on the Home tab) do not reset progress.
-  const slides = Array.from(carousel.querySelectorAll(".hc-slide"));
-  if (heroState.timer && slides.length === heroState.total && heroState.total > 1) {
-    return; // carousel is already running with the same DOM — nothing to do
-  }
-
-  clearInterval(heroState.timer);
-  cancelAnimationFrame(heroState.rafId);
-
-  const dots   = Array.from(carousel.querySelectorAll(".hc-dot"));
-  const thumbs = Array.from(carousel.querySelectorAll(".hc-thumb"));
-  heroState.total = slides.length;
-  if (heroState.total <= 1) return;
-
-  function goTo(idx) {
-    slides[heroState.current].classList.remove("is-active");
-    dots[heroState.current]  && dots[heroState.current].classList.remove("is-active");
-    thumbs[heroState.current] && thumbs[heroState.current].classList.remove("is-active");
-    heroState.current = ((idx % heroState.total) + heroState.total) % heroState.total;
-    slides[heroState.current].classList.add("is-active");
-    dots[heroState.current]  && dots[heroState.current].classList.add("is-active");
-    thumbs[heroState.current] && thumbs[heroState.current].classList.add("is-active");
-    dots.forEach(d => { const f = d.querySelector(".hc-dot-progress"); if (f) f.style.width = "0%"; });
-    startProgress();
-  }
-
-  function startProgress() {
-    cancelAnimationFrame(heroState.rafId);
-    heroState.start = performance.now();
-    const fill = dots[heroState.current] && dots[heroState.current].querySelector(".hc-dot-progress");
-    (function step(now) {
-      if (!fill) return;
-      const pct = Math.min(100, ((now - heroState.start) / heroState.dur) * 100);
-      fill.style.width = pct + "%";
-      if (pct < 100) heroState.rafId = requestAnimationFrame(step);
-    })(performance.now());
-  }
-
-  function startAuto() {
-    clearInterval(heroState.timer);
-    heroState.timer = setInterval(() => goTo(heroState.current + 1), heroState.dur);
-  }
-
-  const prevBtn = document.getElementById("hcPrev");
-  const nextBtn = document.getElementById("hcNext");
-  if (prevBtn) prevBtn.addEventListener("click", e => { e.stopPropagation(); clearInterval(heroState.timer); goTo(heroState.current - 1); startAuto(); });
-  if (nextBtn) nextBtn.addEventListener("click", e => { e.stopPropagation(); clearInterval(heroState.timer); goTo(heroState.current + 1); startAuto(); });
-
-  dots.forEach(dot => dot.addEventListener("click", e => {
-    e.stopPropagation();
-    clearInterval(heroState.timer);
-    goTo(parseInt(dot.dataset.hcDot, 10));
-    startAuto();
-  }));
-
-  thumbs.forEach(thumb => thumb.addEventListener("click", e => {
-    const idx = parseInt(thumb.dataset.hcThumb, 10);
-    if (idx !== heroState.current) {
-      e.stopPropagation();
-      clearInterval(heroState.timer);
-      goTo(idx);
-      startAuto();
-    }
-  }));
-
-  heroState.current = 0;
-  goTo(0);
-  startAuto();
-}
-
-/* HOME */
-function getLibraryStats() {
-  return getAnimeEntries().reduce((stats, entry) => {
-    stats.total += 1;
-    stats.episodesWatched += entry.episodesWatched || 0;
-    if (entry.status === "watching") stats.watching += 1;
-    if (entry.status === "completed") stats.completed += 1;
-    return stats;
-  }, { total: 0, watching: 0, completed: 0, episodesWatched: 0 });
-}
-function getContinueWatchingEntries() {
-  return getAnimeEntries()
-    .filter((entry) => entry.status === "watching" && (!entry.episodes || entry.episodesWatched < entry.episodes))
-    .sort((a, b) => (b.lastWatched || 0) - (a.lastWatched || 0));
-}
-function getEntriesByStatus(status) {
-  return getAnimeEntries()
-    .filter((entry) => entry.status === status)
-    .sort((a, b) => (b.dateAdded || 0) - (a.dateAdded || 0));
-}
-function getRecentlyCompletedEntries() {
-  return getAnimeEntries()
-    .filter((entry) => entry.status === "completed")
-    .sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0))
-    .slice(0, 20);
-}
-function getRecentlyWatchedEntries(limit = 5) {
-  return getAnimeEntries()
-    .filter((entry) => entry.lastWatched > 0)
-    .sort((a, b) => (b.lastWatched || 0) - (a.lastWatched || 0))
-    .slice(0, limit);
-}
-function getRecommendationsForAnime(animeEntry, limit = 10) {
-  if (!animeEntry.genres.length) return [];
-  const otherEntries = getAnimeEntries().filter((e) => e.id !== animeEntry.id);
-  const scored = otherEntries.map((entry) => {
-    const matchCount = entry.genres.filter((g) => animeEntry.genres.includes(g)).length;
-    return { entry, score: matchCount };
-  });
-  return scored
-    .filter((s) => s.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit)
-    .map((s) => s.entry);
-}
-function getTrendingRecommendations(limit = 10) {
-  return getAnimeEntries()
-    .filter((e) => e.averageScore > 0)
-    .sort((a, b) => (b.averageScore || 0) - (a.averageScore || 0))
-    .slice(0, limit);
-}
-function getGenreBasedRecommendations(limit = 10) {
-  const genreCount = new Map();
-  getAnimeEntries().forEach((entry) => {
-    entry.genres.forEach((g) => genreCount.set(g, (genreCount.get(g) || 0) + 1));
-  });
-  const topGenres = Array.from(genreCount.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 3)
-    .map(([g]) => g);
-  if (topGenres.length === 0) return [];
-  return getAnimeEntries()
-    .filter((e) => e.genres.some((g) => topGenres.includes(g)))
-    .sort((a, b) => (b.averageScore || 0) - (a.averageScore || 0))
-    .slice(0, limit);
-}
-function renderEmptyState(icon, title, text) {
-  return `<div class="empty-state"><div class="empty-state__inner"><div class="empty-state__icon">${icon}</div><div class="empty-state__title">${escapeHtml(title)}</div><p class="empty-state__text">${escapeHtml(text)}</p></div></div>`;
-}
-function renderScrollControls(trackId, visible) {
-  if (!visible) return "";
-  return `<div class="section__controls">
-    <button type="button" class="scroll-btn" data-action="row-scroll" data-target="${trackId}" data-dir="prev" aria-label="Scroll left">&lt;</button>
-    <button type="button" class="scroll-btn" data-action="row-scroll" data-target="${trackId}" data-dir="next" aria-label="Scroll right">&gt;</button>
-  </div>`;
-}
-function renderContinueCard(entry) {
-  const image = entry.banner || entry.cover;
-  const poster = entry.cover || entry.banner;
-  return `<button type="button" class="continue-card" data-action="open-watch" data-id="${entry.id}">
-    <div class="continue-card__bg">${image ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(getDisplayTitle(entry))}">` : ""}</div>
-    <div class="continue-card__content">
-      <div class="continue-card__poster">${poster ? `<img src="${escapeHtml(poster)}" alt="${escapeHtml(getDisplayTitle(entry))}">` : ""}</div>
-      <div class="continue-card__meta">
-        <div class="continue-card__title">${escapeHtml(getDisplayTitle(entry))}</div>
-        <div class="continue-card__progress">${escapeHtml(formatEpisodeLabel(entry))}</div>
-        <div class="continue-card__button">&#9654; Resume</div>
+        ${genres ? `<div class="card__genres">${escapeHtml(genres)}</div>` : ""}
       </div>
     </div>
-    <div class="continue-card__bar"><span style="width:${getProgressPercent(entry)}%"></span></div>
-  </button>`;
-}
-function renderPosterCard(entry, options = {}) {
-  const { action = "open-watch", context = "library", showBadge = true, showProgress = true } = options;
-  const badge = showBadge ? `<span class="${getStatusClass(entry.status)}">${escapeHtml(STATUS_LABELS[entry.status])}</span>` : "";
-  const year = entry.year ? String(entry.year) : "Unknown year";
-  const episodes = entry.episodes ? formatCount(entry.episodes, "episode") : "Episode total unknown";
-  const rating = entry.rating ? `Your rating ${entry.rating}/10` : entry.averageScore ? `AniList score ${entry.averageScore}` : "";
-  const metaParts = [episodes, year, rating].filter(Boolean);
-  const meta = metaParts.slice(0, 2).join(" • ");
-  const footerLabel = context === "queue" ? "In Queue" : context === "plan" ? episodes : context === "completed" ? rating || "Completed" : meta || STATUS_LABELS[entry.status];
-  const showScoreChip = context === "grid" || context === "completed";
-  const scoreChip = showScoreChip && entry.rating ? `<span class="chip-chip">&#11088; ${entry.rating} - ${escapeHtml(getRatingLabel(entry.rating))}</span>` : "";
-  const genreTag = entry.genres && entry.genres[0] ? `<span class="poster-card__genre-tag">${escapeHtml(entry.genres[0])}</span>` : "";
-  return `<button type="button" class="poster-card ${context === "grid" ? "poster-card--grid" : ""}" data-action="${action}" data-id="${entry.id}">
-    <div class="poster-card__media">
-      ${entry.cover ? `<img src="${escapeHtml(entry.cover)}" alt="${escapeHtml(getDisplayTitle(entry))}">` : ""}
-      <div class="poster-card__play-overlay"><span class="play-icon">&#9654;</span></div>
-      ${genreTag}
-    </div>
-    <div class="poster-card__body">
-      <div class="poster-card__meta-row">${badge}${entry.averageScore ? `<span class="chip-chip">Score ${entry.averageScore}</span>` : ""}</div>
-      <div class="poster-card__title">${escapeHtml(getDisplayTitle(entry))}</div>${scoreChip}
-      <div class="poster-card__meta">${escapeHtml(footerLabel)}</div>
-      ${showProgress ? `<div class="progress-rail" aria-hidden="true"><span style="width:${getProgressPercent(entry)}%"></span></div>` : ""}
-    </div>
-  </button>`;
-}
-function renderMediaRowSection({ sectionId, title, subtitle, entries, emptyIcon, emptyTitle, emptyText, context, action }) {
-  const hasEntries = entries.length > 0;
-  return `<section class="section">
-    <div class="section__head">
-      <div class="section__copy">
-        <div class="section__title">${escapeHtml(title)}</div>
-        <div class="section__sub">${escapeHtml(subtitle)}</div>
-      </div>
-      <div class="section__head-right">
-        ${hasEntries && entries.length > 3 ? `<button type="button" class="section__see-all" data-action="tab" data-tab="library">See all</button>` : ""}
-        ${renderScrollControls(sectionId, hasEntries && entries.length > 3)}
-      </div>
-    </div>
-    ${hasEntries ? `<div class="media-row"><div class="media-row__viewport" id="${sectionId}" data-row-track="${sectionId}"><div class="media-row__track">
-      ${entries.map((entry) => renderPosterCard(entry, { context, action, showBadge: context !== "plan" })).join("")}
-    </div></div></div>` : renderEmptyState(emptyIcon, emptyTitle, emptyText)}
-  </section>`;
-}
-function renderStatsStrip() {
-  const stats = getLibraryStats();
-  return `<section class="surface-strip stats-strip">
-    <div class="stat-chip"><div class="stat-chip__label">Total in library</div><div class="stat-chip__value">${stats.total}</div></div>
-    <div class="stat-chip"><div class="stat-chip__label">Currently watching</div><div class="stat-chip__value">${stats.watching}</div></div>
-    <div class="stat-chip"><div class="stat-chip__label">Completed</div><div class="stat-chip__value">${stats.completed}</div></div>
-    <div class="stat-chip"><div class="stat-chip__label">Episodes watched</div><div class="stat-chip__value">${stats.episodesWatched}</div></div>
-  </section>`;
-}
-function renderHome() {
-  const continueWatching = getContinueWatchingEntries();
-  const queueEntries = getEntriesByStatus("queued");
-  const planEntries = getEntriesByStatus("plan-to-watch");
-  const completedEntries = getRecentlyCompletedEntries();
-  const recentlyWatched = getRecentlyWatchedEntries(5);
-  const recommendationRows = [];
-  for (const watched of recentlyWatched) {
-    const recs = getRecommendationsForAnime(watched, 10);
-    if (recs.length > 0) recommendationRows.push({ title: `Because you watched ${getDisplayTitle(watched)}`, entries: recs, id: `rec-${watched.id}` });
-  }
-  const trendingRecs = getTrendingRecommendations(10);
-  const genreRecs = getGenreBasedRecommendations(10);
-  let recommendationHtml = "";
-  if (trendingRecs.length > 0) {
-    recommendationHtml += renderMediaRowSection({ sectionId: "trendingRow", title: "Trending For You", subtitle: "Popular among viewers like you", entries: trendingRecs, emptyIcon: "🔥", emptyTitle: "No trending titles yet", emptyText: "Watch more to get personalized picks.", context: "grid", action: "open-watch" });
-  }
-  if (genreRecs.length > 0) {
-    recommendationHtml += renderMediaRowSection({ sectionId: "genreRecRow", title: "Recommended For You", subtitle: "Based on your favorite genres", entries: genreRecs, emptyIcon: "✨", emptyTitle: "No recommendations yet", emptyText: "Add more anime to your library to improve recommendations.", context: "grid", action: "open-watch" });
-  }
-  for (const row of recommendationRows.slice(0, 3)) {
-    recommendationHtml += renderMediaRowSection({ sectionId: row.id, title: row.title, subtitle: "", entries: row.entries, emptyIcon: "🎬", emptyTitle: "No recommendations", emptyText: "Watch more to get personalized suggestions.", context: "grid", action: "open-watch" });
-  }
-  return `
-  <div class="page page--home">
-    ${continueWatching.length > 0 ? `<div class="home-hero-layout">
-      ${renderHeroCarousel(continueWatching)}
-      <div class="cw-list">
-        <div class="cw-list__header">Continue Watching</div>
-        ${continueWatching.slice(0, 4).map(entry => {
-          const poster = entry.cover || entry.banner || "";
-          const nextEp = (entry.episodesWatched || 0) + 1;
-          const totalEp = entry.episodes || "?";
-          return `<button type="button" class="cw-list-item" data-action="open-watch" data-id="${entry.id}">
-            <div class="cw-list-item__poster">${poster ? `<img src="${escapeHtml(poster)}" alt="${escapeHtml(getDisplayTitle(entry))}">` : ""}</div>
-            <div class="cw-list-item__info">
-              <div class="cw-list-item__title">${escapeHtml(getDisplayTitle(entry))}</div>
-              <div class="cw-list-item__ep">Ep ${nextEp} / ${totalEp}</div>
-            </div>
-            <div class="cw-list-item__play">&#9654;</div>
-          </button>`;
-        }).join("")}
-      </div>
-    </div>` : renderHeroCarousel(continueWatching)}
-    <section class="section section--continue">
-      <div class="section__head">
-        <div class="section__copy">
-          <div class="section__title">Continue Watching</div>
-        </div>
-        ${renderScrollControls("continueRow", continueWatching.length > 1)}
-      </div>
-      ${continueWatching.length ? `<div class="media-row"><div class="media-row__viewport" id="continueRow" data-row-track="continueRow"><div class="media-row__track">${continueWatching.map(renderContinueCard).join("")}</div></div></div>` : renderEmptyState("TV", "Nothing playing yet - add something to your watchlist to get started.", "Start watching something to see it here.")}
-    </section>
-    ${renderMediaRowSection({ sectionId: "queueRow", title: "Next Up For You", subtitle: "", entries: queueEntries, emptyIcon: "Q", emptyTitle: "Nothing queued - add anime to your queue from Browse", emptyText: "Your queue stays focused and easy to pick from once you add titles.", context: "queue", action: "open-watch" })}
-    ${renderMediaRowSection({ sectionId: "planRow", title: "Saved For Later", subtitle: "", entries: planEntries, emptyIcon: "P", emptyTitle: "No future picks yet", emptyText: "Use Browse or Search to save shows for later.", context: "plan", action: "open-detail" })}
-    ${renderMediaRowSection({ sectionId: "completedRow", title: "Already Watched", subtitle: "", entries: completedEntries, emptyIcon: "C", emptyTitle: "No finished series yet", emptyText: "Completed anime will show up here as soon as you finish them.", context: "completed", action: "open-watch" })}
-    ${recommendationHtml}
-  </div>`;
-}
-
-/* LIBRARY */
-function getFilteredLibraryEntries() {
-  const allEntries = getAnimeEntries();
-  const byFilter = uiState.library.filter === "all" ? allEntries : allEntries.filter((entry) => entry.status === uiState.library.filter);
-  const bySearch = filterByText(byFilter, uiState.library.query);
-  const sorters = {
-    default: (a, b) => (b.dateAdded || 0) - (a.dateAdded || 0),
-    alpha: (a, b) => getDisplayTitle(a).localeCompare(getDisplayTitle(b)),
-    "alpha-desc": (a, b) => getDisplayTitle(b).localeCompare(getDisplayTitle(a)),
-    newest: (a, b) => (b.dateAdded || 0) - (a.dateAdded || 0),
-    "rating-desc": (a, b) => (b.rating || 0) - (a.rating || 0),
-    "progress-desc": (a, b) => getProgressPercent(b) - getProgressPercent(a)
-  };
-  const sorter = sorters[uiState.library.sort] || sorters.default;
-  return [...bySearch].sort(sorter);
-}
-function renderLibrary() {
-  const entries = getFilteredLibraryEntries();
-  return `
-  <div class="page page--library">
-    <div class="page-hero"><div class="page-title">Your Library</div><div class="page-subtitle">Everything saved locally in your browser, ready to browse offline-first.</div></div>
-    <section class="library-toolbar">
-      <div class="toolbar-row">
-        <div class="chip-group">
-          ${[["all", "All"], ["watching", "Watching"], ["completed", "Completed"], ["queued", "Queue"], ["plan-to-watch", "Plan"], ["paused", "Paused"], ["dropped", "Dropped"], ["untracked", "Untracked"]].map(([value, label]) => {
-            const active = uiState.library.filter === value ? "is-active" : "";
-            return `<button type="button" class="chip ${active}" data-action="set-library-filter" data-filter="${value}">${label}</button>`;
-          }).join("")}
-        </div>
-      </div>
-      <div class="toolbar-grid">
-        <input id="librarySearchInput" class="input" type="search" placeholder="Filter your library" value="${escapeHtml(uiState.library.query)}">
-        <select id="librarySortSelect" class="select">
-          <option value="default" ${uiState.library.sort === "default" ? "selected" : ""}>Default</option>
-          <option value="alpha" ${uiState.library.sort === "alpha" ? "selected" : ""}>A-Z</option>
-          <option value="alpha-desc" ${uiState.library.sort === "alpha-desc" ? "selected" : ""}>Z-A</option>
-          <option value="newest" ${uiState.library.sort === "newest" ? "selected" : ""}>Newest</option>
-          <option value="rating-desc" ${uiState.library.sort === "rating-desc" ? "selected" : ""}>Highest Rated</option>
-          <option value="progress-desc" ${uiState.library.sort === "progress-desc" ? "selected" : ""}>Most Progress</option>
-        </select>
-      </div>
-    </section>
-    ${entries.length ? `<section class="library-grid">${entries.map((entry) => renderPosterCard(entry, { context: "grid", action: "open-watch" })).join("")}</section>` : renderEmptyState("AV", "Your library is empty - head to Browse or Search to add anime", "Once you add titles, this grid becomes your full local catalog.")}
-  </div>`;
-}
-
-/* BROWSE */
-async function fetchAniList(query, variables) {
-  const response = await fetch("https://graphql.anilist.co", {
-    method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ query, variables })
-  });
-  if (!response.ok) throw new Error(`AniList request failed with ${response.status}`);
-  const payload = await response.json();
-  if (payload.errors && payload.errors.length) throw new Error(payload.errors[0].message || "AniList request failed");
-  return payload.data;
-}
-async function fetchEpisodeData(anilistId) {
-  if (!anilistId) return { duration: null, episodes: {} };
-  if (episodeCache[anilistId]) return episodeCache[anilistId];
-  const data = await fetchAniList(EPISODE_DATA_QUERY, { id: Number(anilistId) });
-  const media = data && data.Media ? data.Media : {};
-  const episodes = {};
-  (media.streamingEpisodes || []).forEach((streamingEpisode) => {
-    const parsed = parseEpisodeTitle(streamingEpisode.title);
-    if (!parsed) return;
-    episodes[parsed.number] = { name: parsed.name, thumbnail: streamingEpisode.thumbnail || "" };
-  });
-  episodeCache[anilistId] = { duration: Number.isFinite(Number(media.duration)) ? Number(media.duration) : null, episodes };
-  return episodeCache[anilistId];
-}
-async function fetchFranchiseRelations(anilistId) {
-  if (!anilistId) return [];
-  if (franchiseCache[anilistId]) return franchiseCache[anilistId];
-  const data = await fetchAniList(FRANCHISE_RELATIONS_QUERY, { id: Number(anilistId) });
-  const media = data && data.Media ? data.Media : null;
-  const currentEntry = getEntryByAnimeId(anilistId);
-  const relations = [];
-
-  // Build the "current" entry using AniList data for accurate startDate/format/seasonYear
-  // Fall back to library data for cover/title if AniList didn't return them
-  const currentStartDate = (media && media.startDate) ? media.startDate : { year: currentEntry ? (currentEntry.year || 0) : 0, month: 0, day: 0 };
-  const currentFormat = (media && media.format) ? media.format : "";
-  const currentSeasonYear = (media && media.seasonYear) ? media.seasonYear : (currentEntry ? (currentEntry.year || 0) : 0);
-  const currentAverageScore = (media && media.averageScore) ? media.averageScore : (currentEntry ? (currentEntry.averageScore || 0) : 0);
-  const currentEpisodes = (media && media.episodes) ? media.episodes : (currentEntry ? (currentEntry.episodes || 0) : 0);
-  const currentStatus = (media && media.status) ? media.status : (currentEntry ? (currentEntry.status || "") : "");
-  const currentTitle = {
-    romaji: (media && media.title && media.title.romaji) ? media.title.romaji : (currentEntry ? currentEntry.title : "Current Anime"),
-    english: (media && media.title && media.title.english) ? media.title.english : (currentEntry ? (currentEntry.titleEnglish || "") : "")
-  };
-  const currentCover = (media && media.coverImage && media.coverImage.large) ? media.coverImage.large : (currentEntry ? (currentEntry.cover || "") : "");
-
-  relations.push({
-    id: Number(anilistId),
-    title: currentTitle,
-    coverImage: { large: currentCover },
-    type: "ANIME",
-    format: currentFormat,
-    seasonYear: currentSeasonYear,
-    startDate: currentStartDate,
-    episodes: currentEpisodes,
-    status: currentStatus,
-    averageScore: currentAverageScore,
-    relationType: "current",
-    isCurrent: true
-  });
-
-  // Add all related entries — filter to ANIME type and known watch-order relation types
-  (((media || {}).relations || {}).edges || []).forEach((edge) => {
-    const node = edge && edge.node ? edge.node : null;
-    if (!node || node.type !== "ANIME" || !WATCH_ORDER_RELATIONS.has(edge.relationType)) return;
-    relations.push({ ...node, relationType: edge.relationType, isCurrent: false });
-  });
-
-  franchiseCache[anilistId] = relations;
-  return relations;
-}
-function adaptAniListMedia(media) {
-  return {
-    id: Number(media.id),
-    title: { romaji: media.title && media.title.romaji ? media.title.romaji : "Untitled", english: media.title && media.title.english ? media.title.english : "" },
-    coverImage: { large: media.coverImage && media.coverImage.large ? media.coverImage.large : "" },
-    bannerImage: media.bannerImage || "",
-    episodes: Number(media.episodes) || 0,
-    genres: Array.isArray(media.genres) ? media.genres : [],
-    seasonYear: Number(media.seasonYear) || 0,
-    averageScore: Number(media.averageScore) || 0,
-    status: media.status || ""
-  };
-}
-async function loadBrowse(mode, genre = uiState.browse.genre, page = 1) {
-  // When page === 1 (mode/genre switch): reset state and disconnect any active observer
-  if (page === 1) {
-    uiState.browse.mode = mode; uiState.browse.genre = genre;
-    uiState.browse.page = 1; uiState.browse.hasMore = true;
-    if (window._browseObserver) { window._browseObserver.disconnect(); window._browseObserver = null; }
-  }
-  uiState.browse.loading = true; uiState.browse.error = ""; queueRender();
-  const requestId = ++uiState.browse.requestId;
-  const perPage = 30;
-  const season = getSeasonFromDate(new Date()), seasonYear = new Date().getFullYear();
-  let variables = { page, perPage, sort: ["POPULARITY_DESC"] };
-  let title = "This Season", subtitle = `${season.charAt(0)}${season.slice(1).toLowerCase()} releases, sorted by popularity.`;
-  if (mode === "top") { variables = { page, perPage, sort: ["SCORE_DESC"] }; title = "Top Rated"; subtitle = "High scoring anime from AniList."; }
-  else if (mode === "popular") { variables = { page, perPage, sort: ["POPULARITY_DESC"] }; title = "Most Popular"; subtitle = "Heavy hitters with the biggest audiences."; }
-  else if (mode === "genre") { variables = { page, perPage, sort: ["SCORE_DESC"], genre }; title = `${genre} Highlights`; subtitle = `Top rated picks in ${genre}.`; }
-  else { variables = { page, perPage, sort: ["POPULARITY_DESC"], season, seasonYear }; }
-  try {
-    const data = await fetchAniList(BROWSE_QUERY, variables);
-    if (requestId !== uiState.browse.requestId) return;
-    const newItems = data.Page.media.map(adaptAniListMedia);
-    if (page === 1) {
-      // Replace results on first page (mode/genre switch)
-      uiState.browse.results = newItems;
-    } else {
-      // Append results on subsequent pages (sentinel triggered)
-      uiState.browse.results = [...uiState.browse.results, ...newItems];
-      uiState.browse.page = page;
-    }
-    // Set hasMore = false when returned item count is less than perPage
-    if (newItems.length < perPage) { uiState.browse.hasMore = false; }
-    uiState.browse.title = title; uiState.browse.subtitle = subtitle;
-    uiState.browse.loading = false; uiState.browse.initialized = true; queueRender();
-  } catch (error) {
-    if (requestId !== uiState.browse.requestId) return;
-    uiState.browse.loading = false; uiState.browse.error = error.message; queueRender();
-    showToast("AniList browse request failed. Try again when you are online.", "error");
-  }
-}
-function renderQuickActionCard(anime, source) {
-  const existing = getEntryByAnimeId(anime.id);
-  const title = anime.title && anime.title.english ? anime.title.english : anime.title.romaji;
-  const meta = [anime.averageScore ? `Score ${anime.averageScore}` : "", anime.episodes ? formatCount(anime.episodes, "episode") : "Episode total unknown"].filter(Boolean).join(" • ");
-  const genreTag = anime.genres && anime.genres[0] ? `<span class="discover-card__genre-tag">${escapeHtml(anime.genres[0])}</span>` : "";
-
-  // Status dot color for the add button when already in library
-  const STATUS_DOT_COLORS = {
-    watching: "#3b9eff", completed: "#22c55e", queued: "#f59e0b",
-    "plan-to-watch": "#a78bfa", dropped: "#ef4444", paused: "#fbbf24", untracked: "#50506a"
-  };
-
-  // Play icon SVG
-  const playIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>`;
-  // Plus icon SVG
-  const plusIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`;
-  // Remove icon SVG
-  const removeIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
-
-  return `<article class="discover-card">
-    <div class="discover-card__media">
-      ${anime.coverImage && anime.coverImage.large ? `<img src="${escapeHtml(anime.coverImage.large)}" alt="${escapeHtml(title)}">` : ""}
-      ${genreTag}
-    </div>
-    <div class="discover-card__body">
-      <div class="discover-card__title">${escapeHtml(title)}</div>
-      <div class="discover-card__meta">${escapeHtml(meta)}</div>
-      <div class="discover-card__meta-row">${anime.status ? `<span class="chip-chip">${escapeHtml(String(anime.status).replaceAll("_", " "))}</span>` : ""}</div>
-      <div class="card-actions">
-        ${existing
-          ? `<button type="button" class="btn-icon btn-icon--primary" data-action="open-watch" data-id="${existing.id}" title="Watch Now" aria-label="Watch Now">${playIcon}</button>
-             <button type="button" class="btn-icon btn-icon--ghost btn-icon--added" data-action="open-add-modal" data-source="${source}" data-id="${anime.id}" title="${escapeHtml(STATUS_LABELS[existing.status] || "In Library")}" aria-label="Update status">
-               ${plusIcon}
-               <span class="btn-icon__dot" style="background:${STATUS_DOT_COLORS[existing.status] || "#50506a"}"></span>
-             </button>`
-          : `<button type="button" class="btn-icon btn-icon--primary" data-action="quick-watch-now" data-source="${source}" data-id="${anime.id}" title="Watch Now" aria-label="Watch Now">${playIcon}</button>
-             <button type="button" class="btn-icon btn-icon--ghost" data-action="open-add-modal" data-source="${source}" data-id="${anime.id}" title="Add to List" aria-label="Add to List">${plusIcon}</button>`
-        }
-      </div>
-    </div>
+    <div class="card__title">${escapeHtml(media.title)}</div>
   </article>`;
 }
-function renderBrowseCard(anime) { return renderQuickActionCard(anime, "browse"); }
-function renderSearchCard(anime) { return renderQuickActionCard(anime, "search"); }
-function renderBrowse() {
-  return `
-  <div class="page page--browse">
-    <div class="page-hero"><div class="page-title">Browse AniList</div><div class="page-subtitle">Seasonal picks, genres, top rated favorites, and audience hits.</div></div>
-    <section class="browse-controls">
-      <div class="toolbar-row">
-        <div class="discover-modes">
-          ${[["seasonal", "Seasonal"], ["top", "Top Rated"], ["popular", "Most Popular"]].map(([mode, label]) => {
-            const active = uiState.browse.mode === mode ? "is-active" : "";
-            return `<button type="button" class="chip ${active}" data-action="browse-mode" data-mode="${mode}">${label}</button>`;
-          }).join("")}
-        </div>
-        <div class="genre-pills">
-          ${BROWSE_GENRES.map((genre) => {
-            const active = uiState.browse.mode === "genre" && uiState.browse.genre === genre ? "is-active" : "";
-            return `<button type="button" class="chip ${active}" data-action="browse-genre" data-genre="${genre}">${genre}</button>`;
-          }).join("")}
-        </div>
-      </div>
-      <div class="status-line">${escapeHtml(uiState.browse.title)}${uiState.browse.subtitle ? ` - ${escapeHtml(uiState.browse.subtitle)}` : ""}</div>
-    </section>
-    ${uiState.browse.loading ? renderEmptyState("...", "Loading AniList results", "AniVault is pulling the latest browse results.") : uiState.browse.error ? renderEmptyState("!", "Browse is offline right now", uiState.browse.error) : uiState.browse.results.length ? `<section class="browse-results discover-grid">${uiState.browse.results.map((media) => renderBrowseCard(media)).join("")}</section>${uiState.browse.hasMore ? `<div id="browseSentinel" class="browse-sentinel"></div>` : ""}` : renderEmptyState("0", "No results yet", "Choose a browse mode to load anime from AniList.")}
-  </div>`;
-}
 
-/* SEARCH */
-function getSearchLibraryMatches() {
-  if (!uiState.search.query.trim()) return [];
-  return filterByText(getAnimeEntries(), uiState.search.query)
-    .sort((a, b) => (b.lastWatched || b.dateAdded || 0) - (a.lastWatched || a.dateAdded || 0))
-    .slice(0, 12);
-}
-function scheduleAniListSearch(query) {
-  window.clearTimeout(searchTimer);
-  if (query.trim().length < 2) { uiState.search.loading = false; uiState.search.error = ""; uiState.search.results = []; return; }
-  uiState.search.loading = true; uiState.search.error = "";
-  searchTimer = window.setTimeout(() => runAniListSearch(query), 350);
-}
-async function runAniListSearch(query) {
-  const requestId = ++uiState.search.requestId;
-  try {
-    const data = await fetchAniList(SEARCH_QUERY, { search: query, page: 1, perPage: 20 });
-    if (requestId !== uiState.search.requestId) return;
-    uiState.search.results = data.Page.media.map(adaptAniListMedia);
-    uiState.search.loading = false; uiState.search.error = "";
-    
-    // Change 6: Surgical DOM update — replace only the AniList results section content
-    // Do NOT call queueRender() or renderApp() — this preserves input focus
-    const anilistSection = document.querySelector(".search-layout .section");
-    if (anilistSection) {
-      // Find the content area after .section__head
-      const sectionHead = anilistSection.querySelector(".section__head");
-      if (sectionHead) {
-        // Generate the results HTML (same logic as renderSearch())
-        const resultsHtml = uiState.search.results.length 
-          ? `<div class="browse-results">${uiState.search.results.map((media) => renderSearchCard(media)).join("")}</div>`
-          : renderEmptyState("0", "No AniList results found", "Try a different spelling or a shorter search term.");
-        
-        // Remove all siblings after .section__head and insert new content
-        while (sectionHead.nextSibling) {
-          sectionHead.nextSibling.remove();
-        }
-        sectionHead.insertAdjacentHTML("afterend", resultsHtml);
-      }
-    }
-  } catch (error) {
-    if (requestId !== uiState.search.requestId) return;
-    uiState.search.loading = false; uiState.search.error = error.message;
-    
-    // Change 6: Surgical DOM update for error state
-    const anilistSection = document.querySelector(".search-layout .section");
-    if (anilistSection) {
-      const sectionHead = anilistSection.querySelector(".section__head");
-      if (sectionHead) {
-        const errorHtml = renderEmptyState("!", "Search is offline right now", uiState.search.error);
-        while (sectionHead.nextSibling) {
-          sectionHead.nextSibling.remove();
-        }
-        sectionHead.insertAdjacentHTML("afterend", errorHtml);
-      }
-    }
-    
-    showToast("AniList search failed. Check your connection and try again.", "error");
-  }
-}
-function renderSearch() {
-  const libraryMatches = getSearchLibraryMatches();
-  return `
-  <div class="page page--search">
-    <section class="search-hero">
-      <div class="page-title">Search AniList</div>
-      <div class="page-subtitle">Find something new, then add it straight into your private library.</div>
-      <input id="searchPageInput" class="input search-hero__input" type="search" placeholder="Search anime titles" value="${escapeHtml(uiState.search.query)}">
-    </section>
-    <div class="search-layout">
-      <section class="section">
-        <div class="section__head">
-          <div class="section__copy"><div class="section__title">AniList Results</div><div class="section__sub">Add fresh results directly into AniVault.</div></div>
-        </div>
-        ${uiState.search.loading ? renderEmptyState("...", "Searching AniList", "AniVault is looking for matching anime.") : uiState.search.error ? renderEmptyState("!", "Search is offline right now", uiState.search.error) : uiState.search.query.trim().length < 2 ? renderEmptyState("GO", "Search AniList", "Type at least two characters to load AniList results.") : uiState.search.results.length ? `<div class="browse-results">${uiState.search.results.map((media) => renderSearchCard(media)).join("")}</div>` : renderEmptyState("0", "No AniList results found", "Try a different spelling or a shorter search term.")}
-      </section>
-      <section class="section">
-        <div class="section__head">
-          <div class="section__copy"><div class="section__title">In My Library</div><div class="section__sub">Local matches update instantly as you type.</div></div>
-          ${renderScrollControls("searchLibraryRow", libraryMatches.length > 3)}
-        </div>
-        ${libraryMatches.length ? `<div class="media-row"><div class="media-row__viewport" id="searchLibraryRow" data-row-track="searchLibraryRow"><div class="media-row__track">${libraryMatches.map((entry) => renderSearchCard({ id: entry.id, title: { romaji: entry.title, english: entry.titleEnglish }, coverImage: { large: entry.cover }, episodes: entry.episodes, averageScore: entry.averageScore, status: entry.status })).join("")}</div></div></div>` : renderEmptyState("MY", "Nothing in your library matches yet", uiState.search.query.trim() ? "Try a different title, genre, or note keyword." : "Start typing to search your saved anime first.")}
-      </section>
+function renderContinueCard(entry) {
+  const pct = continueProgressPercent(entry);
+  const sub = entry.mediaType === "tv" ? `S${entry.season} · E${entry.episode}` : "Resume movie";
+  return `<article class="continue-card" data-action="open-watch" data-key="${entry.key}" tabindex="0" role="button" aria-label="Resume ${escapeHtml(entry.title)}">
+    <div class="continue-card__bg">${entry.backdrop ? `<img loading="lazy" src="${img(entry.backdrop, "w780")}" alt="">` : entry.poster ? `<img loading="lazy" src="${img(entry.poster, "w500")}" alt="">` : ""}</div>
+    <div class="continue-card__shade"></div>
+    <div class="continue-card__play">▶</div>
+    <div class="continue-card__info">
+      <div class="continue-card__title">${escapeHtml(entry.title)}</div>
+      <div class="continue-card__sub">${sub}</div>
     </div>
-  </div>`;
+    <div class="continue-card__bar"><span style="width:${pct}%"></span></div>
+  </article>`;
 }
 
-/* EPISODE GROUPING HELPERS */
-function getEpisodeGroups(totalEpisodes) {
-  const groups = [];
-  for (let i = 1; i <= totalEpisodes; i += 50) {
-    const start = i, end = Math.min(i + 49, totalEpisodes);
-    groups.push({ start, end, label: `${start}–${end}` });
-  }
-  return groups;
-}
-function getGroupForEpisode(episode, groups) {
-  for (let idx = 0; idx < groups.length; idx++) {
-    const group = groups[idx];
-    if (episode >= group.start && episode <= group.end) return idx;
-  }
-  return 0;
+function continueProgressPercent(entry) {
+  if (entry.mediaType === "movie") return entry.watched ? 100 : 35;
+  const total = entry.totalEpisodes || (entry.totalSeasons ? entry.totalSeasons * 10 : 12);
+  const done = Math.max(0, (entry.episode || 1) - 1) + (entry.season > 1 ? (entry.season - 1) * 10 : 0);
+  return clamp(Math.round((done / total) * 100), 4, 100);
 }
 
-/* WATCH VIEW */
-// ── STREAM PROVIDERS ────────────────────────────────────────────────────────
-//
-// MegaPlay  — /stream/ani/{anilistId}/{ep}/{lang}
-//   Works for most titles but AniList→episode mapping is incomplete on their
-//   end. Missing seasons are a MegaPlay data gap, not a code bug. Their docs
-//   say: "not every show is synced or mapped to MAL and AniList IDs yet."
-//   The auto-advance logic will fall through to Cinetaro/VidPlus when a
-//   season is missing.
-//
-// Cinetaro  — /embed/anime/{anilistId}/{season}/{ep}?type={lang}
-//   Takes AniList ID + season number + episode number. Season is derived from
-//   the entry's season count (always 1 for single-season shows; for multi-
-//   season franchises each season is a separate AniList entry so season=1).
-//
-// VidPlus   — /embed/anime/{anilistId}/{ep}?dub={bool}
-//   Takes AniList ID + episode number. Confirmed from official VidPlus docs.
-//   dub param is a boolean string ("true"/"false").
-//
-// ────────────────────────────────────────────────────────────────────────────
-const STREAM_PROVIDERS = [
-  {
-    name: "MegaPlay",
-    buildUrl: (entry, ep, lang) =>
-      `https://megaplay.buzz/stream/ani/${entry.anilistId}/${ep}/${lang}`
-  },
-  {
-    name: "Cinetaro",
-    // Each AniList entry is one season of a franchise, so season is always 1
-    // relative to that entry. Multi-season franchises have separate AniList IDs.
-    buildUrl: (entry, ep, lang) =>
-      `https://api.cinetaro.buzz/embed/anime/${entry.anilistId}/1/${ep}?type=${lang}`
-  },
-  {
-    name: "VidPlus",
-    buildUrl: (entry, ep, lang) =>
-      `https://player.vidplus.to/embed/anime/${entry.anilistId}/${ep}?dub=${lang === "dub"}&autoplay=true`
-  },
-  {
-    name: "Anikoto",
-    active: true,
-    idType: "anilist",
-    notes: "Requires async embed ID lookup via Anikoto API. Returns '' on cache miss; re-renders on resolution.",
-    buildUrl: (entry, ep, lang) => {
-      const key = `${entry.anilistId}-${ep}`;
-      if (episodeEmbedCache[key]) {
-        return `https://anikoto.to/stream/s-2/${episodeEmbedCache[key]}/${lang}`;
-      }
-      fetch(`https://anikoto.to/api/episode?anilistId=${entry.anilistId}&ep=${ep}`)
-        .then(r => r.json())
-        .then(data => {
-          const embedId = data && data.embedId;
-          if (embedId) {
-            episodeEmbedCache[key] = embedId;
-            queueRender();
-          }
-        })
-        .catch(() => {});
-      return "";
-    }
-  },
-];
-
-function buildStreamUrl(entry, episode, language, providerIndex = 0) {
-  if (!entry || !entry.anilistId) return "";
-  const provider = STREAM_PROVIDERS[providerIndex] || STREAM_PROVIDERS[0];
-  return provider.buildUrl(entry, episode, language);
-}
-function recordWatchTime(id, timestamp = Date.now()) {
-  const entry = getEntry(id); if (!entry) return;
-  entry.sessionLog = Array.isArray(entry.sessionLog) ? entry.sessionLog : [];
-  entry.sessionLog.push(timestamp);
-}
-function updateStatus(id, status) {
-  const entry = getEntry(id); if (!entry || !STATUS_OPTIONS.includes(status)) return;
-  entry.status = status;
-  if (status === "completed") { if (entry.episodes) entry.episodesWatched = entry.episodes; entry.completedAt = Date.now(); entry.lastWatched = Date.now(); }
-  else if (status !== "completed") { entry.completedAt = 0; }
-  saveData(); renderApp();
-}
-function setRating(id, rating) { const entry = getEntry(id); if (!entry) return; entry.rating = clamp(rating, 0, 10); saveData(); renderApp(); }
-async function openWatchView(id) {
-  const entry = getEntry(id); if (!entry) return;
-  previousTab = currentTab; currentWatchId = id;
-  uiState.watch.sidebarCollapsed = false; uiState.watch.streamLoaded = false;
-  uiState.watch.forceFallback = !entry.anilistId; uiState.watch.lastEndedKey = "";
-  uiState.watch.currentProvider = 0; // reset to first provider for every new title
-  const totalEpisodes = getPlayableEpisodeCount(entry);
-  currentEpisode = entry.episodes > 0 && entry.episodesWatched >= entry.episodes ? entry.episodes : clamp((entry.episodesWatched || 0) + 1, 1, totalEpisodes);
-  const groups = getEpisodeGroups(totalEpisodes);
-  currentEpisodeGroupIndex = getGroupForEpisode(currentEpisode, groups);
-  uiState.watch.episodeGroupIndex = currentEpisodeGroupIndex;
-  uiState.overlay = null; uiState.inlineStatusPicker = null; uiState.navMenuOpen = false;
-  currentWatchOrderSort = "release";
-  const requestToken = ++watchViewRequestToken;
-  renderApp(); renderRatingComponent(id, "watchViewRatingContainer"); paintEpisodeList(id); renderWatchOrder(entry.anilistId || entry.id, "release");
-  if (entry.anilistId) {
-    fetchEpisodeData(entry.anilistId).then(() => { if (currentWatchId === id && requestToken === watchViewRequestToken) paintEpisodeList(id); }).catch(() => {});
-    fetchFranchiseRelations(entry.anilistId).then(() => { if (currentWatchId === id && requestToken === watchViewRequestToken) renderWatchOrder(entry.anilistId, "release"); }).catch(() => { if (currentWatchId === id && requestToken === watchViewRequestToken) renderWatchOrder(entry.anilistId, "release"); });
-  } else renderWatchOrder(entry.id, "release");
-}
-function closeWatchView(targetTab = previousTab || "home") {
-  currentWatchId = null; uiState.watch.forceFallback = false; uiState.watch.streamLoaded = false;
-  uiState.watch.lastEndedKey = ""; currentEpisodeGroupIndex = 0;
-  currentTab = NAV_TABS.includes(targetTab) ? targetTab : "home"; renderApp();
-}
-function switchEpisode(id, episode) {
-  const entry = getEntry(id); if (!entry) return;
-  const totalEpisodes = getPlayableEpisodeCount(entry);
-  currentEpisode = clamp(episode, 1, totalEpisodes);
-  const groups = getEpisodeGroups(totalEpisodes);
-  const newGroupIndex = getGroupForEpisode(currentEpisode, groups);
-  if (newGroupIndex !== currentEpisodeGroupIndex) { currentEpisodeGroupIndex = newGroupIndex; uiState.watch.episodeGroupIndex = currentEpisodeGroupIndex; }
-  uiState.watch.forceFallback = !entry.anilistId; uiState.watch.streamLoaded = false; uiState.watch.lastEndedKey = "";
-  uiState.watch.currentProvider = 0; // reset to first provider on every episode change
-  const shouldRestoreFullscreen = isFullscreen(); if (shouldRestoreFullscreen) exitFullscreenSafe();
-  renderApp();
-  if (shouldRestoreFullscreen) requestAnimationFrame(() => { const container = document.querySelector(".watch-player__frame"); if (container) requestFullscreenOn(container); });
-}
-function switchLanguage(id, language) { const entry = getEntry(id); if (!entry) return; entry.language = language === "dub" ? "dub" : "sub"; saveData(); uiState.watch.streamLoaded = false; renderApp(); }
-function markEpisodeWatched(id, episode, options = {}) {
-  const entry = getEntry(id); if (!entry) return null;
-  const now = Date.now(); const totalEpisodes = getPlayableEpisodeCount(entry);
-  const targetEpisode = clamp(episode, 1, totalEpisodes);
-  entry.episodesWatched = Math.max(entry.episodesWatched || 0, targetEpisode); entry.lastWatched = now; recordWatchTime(id, now);
-  if (["plan-to-watch", "queued", "dropped", "paused", "untracked"].includes(entry.status)) entry.status = "watching";
-  let completed = false;
-  if (entry.episodes > 0 && entry.episodesWatched >= entry.episodes) { entry.episodesWatched = entry.episodes; completed = true; }
-  else if (entry.status === "completed") { entry.status = "watching"; entry.completedAt = 0; }
-  saveData(); if (options.render !== false) renderApp();
-  if (!options.silent && !completed) showToast(`Marked episode ${targetEpisode} watched.`, "success");
-  if (completed) showCompletionRatingPrompt(id);
-  return { completed, entry };
-}
-function handlePlaybackEnded() {
-  const entry = getEntry(currentWatchId); if (!entry) return;
-  const endedKey = `${currentWatchId}:${currentEpisode}`;
-  if (uiState.watch.lastEndedKey === endedKey) return;
-  uiState.watch.lastEndedKey = endedKey;
-  const result = markEpisodeWatched(currentWatchId, currentEpisode, { silent: true, render: false });
-  if (!result) return; if (result.completed) return;
-  const totalEpisodes = getPlayableEpisodeCount(entry);
-  const shouldRestoreFullscreen = isFullscreen(); if (shouldRestoreFullscreen) exitFullscreenSafe();
-  if (currentEpisode < totalEpisodes) {
-    currentEpisode += 1;
-    const groups = getEpisodeGroups(totalEpisodes);
-    const newGroupIndex = getGroupForEpisode(currentEpisode, groups);
-    if (newGroupIndex !== currentEpisodeGroupIndex) { currentEpisodeGroupIndex = newGroupIndex; uiState.watch.episodeGroupIndex = currentEpisodeGroupIndex; }
-  }
-  renderApp(); showToast("Episode finished. Loading the next one.", "info");
-  if (shouldRestoreFullscreen) requestAnimationFrame(() => { const container = document.querySelector(".watch-player__frame"); if (container) requestFullscreenOn(container); });
-}
-function renderEpisodeGroupSelector(entry, currentGroupIndex) {
-  const totalEpisodes = getPlayableEpisodeCount(entry); const groups = getEpisodeGroups(totalEpisodes);
-  if (groups.length <= 1) return "";
-  const chips = groups.map((group, idx) => `<button type="button" class="group-chip ${idx === currentGroupIndex ? "active" : ""}" data-action="switch-episode-group" data-group-index="${idx}">${escapeHtml(group.label)}</button>`).join("");
-  return `<div class="episode-group-selector"><div class="group-chips">${chips}</div></div>`;
-}
-function renderEpisodeListHtml(entry, groupIndex) {
-  const cachedEpisodeData = episodeCache[entry.anilistId] || { duration: null, episodes: {} };
-  const totalEpisodes = getPlayableEpisodeCount(entry); const groups = getEpisodeGroups(totalEpisodes);
-  const group = groups[groupIndex] || groups[0]; if (!group) return '<div class="empty-state">No episodes</div>';
-  const durationLabel = cachedEpisodeData.duration ? `${cachedEpisodeData.duration}m` : "--";
-  const episodesInGroup = []; for (let ep = group.start; ep <= group.end; ep++) episodesInGroup.push(ep);
-  return episodesInGroup.map(episodeNumber => {
-    const isCurrent = episodeNumber === currentEpisode, isWatched = episodeNumber <= (entry.episodesWatched || 0);
-    const episodeMeta = cachedEpisodeData.episodes[episodeNumber] || {};
-    const episodeName = episodeMeta.name || `Episode ${episodeNumber}`;
-    const thumbnail = episodeMeta.thumbnail || "";
-    return `<button type="button" class="ep-row ${isCurrent ? "current" : ""} ${isWatched ? "watched" : ""}" data-action="set-episode" data-ep="${episodeNumber}"><span class="ep-num">${isWatched ? " &#10003; " : ""}${episodeNumber}</span><span class="ep-name">${escapeHtml(episodeName)}</span><span class="ep-dur">${escapeHtml(durationLabel)}</span>${thumbnail ? `<div class="ep-thumbnail-preview"><img src="${escapeHtml(thumbnail)}" alt="${escapeHtml(episodeName)}"></div>` : ""}</button>`;
-  }).join("");
-}
-function paintEpisodeList(id) {
-  const entry = getEntry(id); const groupSelector = document.getElementById("episodeGroupSelector"); const list = document.getElementById("episodeList");
-  if (!entry || !list) return;
-  const groups = getEpisodeGroups(getPlayableEpisodeCount(entry));
-  if (groupSelector && groups.length > 1) { const selectorHtml = renderEpisodeGroupSelector(entry, currentEpisodeGroupIndex); groupSelector.innerHTML = selectorHtml; }
-  list.innerHTML = renderEpisodeListHtml(entry, currentEpisodeGroupIndex);
-  const currentRow = list.querySelector(".ep-row.current"); if (currentRow) currentRow.scrollIntoView({ block: "nearest" });
-}
-async function renderWatchOrder(anilistId, sortMode = "release") {
-  currentWatchOrderSort = sortMode;
-  const mount = document.getElementById("watchOrderMount");
-  if (!mount) return;
-  const relations = franchiseCache[anilistId] || [];
-  const currentLibraryEntry = getEntryByAnimeId(anilistId);
-  const currentFranchiseTitle = (currentLibraryEntry && getDisplayTitle(currentLibraryEntry))
-    || ((relations[0] && relations[0].title && (relations[0].title.english || relations[0].title.romaji)) || "This Franchise");
-
-  // Toggle buttons — Release Order first since it's the default
-  const toggleHtml = `<div class="wo-toggle">
-    <button type="button" class="wo-toggle-btn ${sortMode === "release" ? "active" : ""}" data-action="set-watch-order-sort" data-sort="release">Release Order</button>
-    <button type="button" class="wo-toggle-btn ${sortMode === "recommended" ? "active" : ""}" data-action="set-watch-order-sort" data-sort="recommended">Recommended</button>
-  </div>`;
-
-  if (!relations.length) {
-    mount.innerHTML = `<section class="watch-order-section"><div class="wo-header"><div><div class="wo-title">Watch Order</div><div class="wo-subtitle">${escapeHtml(currentFranchiseTitle)} — Complete Guide</div></div>${toggleHtml}</div>${renderEmptyState("...", "Loading watch order...", "AniVault is fetching the franchise guide from AniList.")}</section>`;
-    return;
-  }
-
-  const sorted = [...relations].sort((left, right) => {
-    if (sortMode === "release") {
-      // Pure chronological: year → month → day, with seasonYear fallback
-      const wLeft  = getDateWeight(left.startDate,  left.seasonYear);
-      const wRight = getDateWeight(right.startDate, right.seasonYear);
-      if (wLeft !== wRight) return wLeft - wRight;
-      // Tie-break: current entry always first within same date
-      if (left.isCurrent) return -1;
-      if (right.isCurrent) return 1;
-      return 0;
-    }
-    // "recommended" — story-logical order: prequel → parent → current → sequel → side stories
-    const priorityDiff = (WATCH_ORDER_PRIORITY[left.relationType] || 99) - (WATCH_ORDER_PRIORITY[right.relationType] || 99);
-    if (priorityDiff !== 0) return priorityDiff;
-    // Within same priority group, sort by release date
-    return getDateWeight(left.startDate, left.seasonYear) - getDateWeight(right.startDate, right.seasonYear);
-  });
-
-  // Only show the section if there are related entries beyond just the current one
-  const hasRelated = sorted.some(item => !item.isCurrent);
-
-  const cards = !hasRelated
-    ? renderEmptyState("🔗", "No related entries found", "AniList did not return connected anime for this title. It may be a standalone series.")
-    : `<div class="wo-cards">${sorted.map(item => {
-        const libraryEntry = getEntryByAnimeId(item.id);
-        const title = (item.title && (item.title.english || item.title.romaji)) || "Untitled";
-        const relationLabel = formatRelationLabel(item);
-        // Show the most precise date available
-        const year = (item.startDate && item.startDate.year) ? item.startDate.year : (item.seasonYear || "Unknown");
-        const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-        const monthLabel = (item.startDate && item.startDate.month && item.startDate.month > 0)
-          ? monthNames[item.startDate.month - 1] + " " : "";
-        const dateLabel = monthLabel + String(year);
-        return `<button type="button" class="wo-card ${item.isCurrent ? "wo-card--current" : ""}" data-action="watch-order-card" data-id="${item.id}">
-          <div class="wo-cover-wrap">
-            ${item.coverImage && item.coverImage.large ? `<img class="wo-cover" src="${escapeHtml(item.coverImage.large)}" alt="${escapeHtml(title)}">` : `<div class="wo-cover wo-cover--empty"></div>`}
-            ${item.format ? `<span class="wo-format-badge" style="background:${getFormatBadgeColor(item.format)}">${escapeHtml(item.format.replaceAll("_", " "))}</span>` : ""}
-            ${item.isCurrent ? `<span class="wo-now-badge">▶ NOW</span>` : ""}
-          </div>
-          <div class="wo-card-title">${escapeHtml(title)}</div>
-          <div class="wo-card-meta">${escapeHtml(dateLabel)}</div>
-          <div class="wo-card-relation">${escapeHtml(relationLabel)}</div>
-          ${item.averageScore ? `<div class="wo-card-meta">★ ${item.averageScore}</div>` : ""}
-          ${libraryEntry
-            ? `<div class="wo-card-progress">${libraryEntry.episodesWatched || 0}/${libraryEntry.episodes || "?"} ep</div>`
-            : `<div class="wo-card-add">+ Add</div>`}
-        </button>`;
-      }).join("")}</div>`;
-
-  mount.innerHTML = `<section class="watch-order-section">
-    <div class="wo-header">
-      <div>
-        <div class="wo-title">Watch Order</div>
-        <div class="wo-subtitle">${escapeHtml(currentFranchiseTitle)} — Complete Guide</div>
+/* --------------------------------------------------------------- rows */
+function renderRow(row) {
+  if (!row.items || !row.items.length) return "";
+  const trackId = `row-${row.id}`;
+  return `<section class="row">
+    <div class="row__head">
+      <h2 class="row__title">${escapeHtml(row.title)}</h2>
+      <div class="row__controls">
+        <button type="button" class="scroll-btn" data-action="row-scroll" data-target="${trackId}" data-dir="prev" aria-label="Scroll left">‹</button>
+        <button type="button" class="scroll-btn" data-action="row-scroll" data-target="${trackId}" data-dir="next" aria-label="Scroll right">›</button>
       </div>
-      ${toggleHtml}
     </div>
-    ${cards}
+    <div class="row__viewport" id="${trackId}" data-row-track="${trackId}">
+      <div class="row__track">${row.items.map(renderCard).join("")}</div>
+    </div>
   </section>`;
 }
-function renderRatingComponent(id, containerId) {
-  const labels = { 1: "Appalling", 2: "Horrible", 3: "Very Bad", 4: "Bad", 5: "Average", 6: "Fine", 7: "Good", 8: "Very Good", 9: "Great", 10: "Masterpiece" };
-  const entry = getEntry(id); const container = document.getElementById(containerId); if (!entry || !container) return;
-  const deferredMode = container.dataset.ratingMode === "deferred";
-  const savedRating = deferredMode ? Number(container.dataset.selectedRating || entry.rating || 0) : Number(entry.rating || 0);
-  container.innerHTML = `<div class="rating-component"><div class="rating-blocks">${Array.from({ length: 10 }, (_, index) => `<button type="button" class="rating-block" data-score="${index + 1}">${index + 1}</button>`).join("")}</div><div class="rating-label"></div></div>`;
-  const blocksRow = container.querySelector(".rating-blocks"), blocks = Array.from(container.querySelectorAll(".rating-block")), label = container.querySelector(".rating-label");
-  function updateDisplay(score) {
-    const activeColor = getRatingColor(score);
-    blocks.forEach((block, index) => {
-      const blockScore = index + 1, filled = score > 0 && blockScore <= score;
-      block.classList.toggle("filled", filled); block.style.background = filled ? activeColor : ""; block.style.borderColor = filled ? "transparent" : ""; block.style.color = filled ? "#ffffff" : "";
-    });
-    label.textContent = score > 0 ? labels[score] : "Rate this anime"; label.style.color = score > 0 ? activeColor : "";
+
+function renderSkeletonRows(count = 5) {
+  const cards = Array.from({ length: 8 }).map(() => `<div class="skel-card"></div>`).join("");
+  return Array.from({ length: count }).map(() => `<section class="row">
+    <div class="row__head"><div class="skel-title"></div></div>
+    <div class="row__viewport"><div class="row__track">${cards}</div></div>
+  </section>`).join("");
+}
+
+/* --------------------------------------------------------------- hero */
+function pickHeroItems(rows) {
+  const trending = (rows.find((r) => r.id === "trending") || rows[0] || { items: [] }).items;
+  return trending.filter((m) => m.backdrop).slice(0, 6);
+}
+
+function renderHero(items) {
+  if (!items.length) return "";
+  heroState.items = items;
+  heroState.total = items.length;
+  if (heroState.current >= items.length) heroState.current = 0;
+  const slides = items.map((m, i) => {
+    const inList = Boolean(getEntry(m.key));
+    return `<div class="hero__slide ${i === heroState.current ? "is-active" : ""}" data-index="${i}">
+      <div class="hero__bg">${m.backdrop ? `<img src="${img(m.backdrop, "original")}" alt="">` : ""}</div>
+      <div class="hero__scrim"></div>
+      <div class="hero__content">
+        <div class="hero__badges">
+          <span class="hero__tag">${typeLabel(m.mediaType)}</span>
+          ${m.year ? `<span class="hero__dot">${m.year}</span>` : ""}
+          ${m.voteAverage ? `<span class="hero__dot">★ ${formatVote(m.voteAverage)}</span>` : ""}
+          ${genreNames(m.genreIds, 2).map((g) => `<span class="hero__dot">${escapeHtml(g)}</span>`).join("")}
+        </div>
+        <h1 class="hero__title">${escapeHtml(m.title)}</h1>
+        <p class="hero__overview">${escapeHtml((m.overview || "").slice(0, 220))}${(m.overview || "").length > 220 ? "…" : ""}</p>
+        <div class="hero__actions">
+          <button type="button" class="btn btn--play" data-action="open-watch" data-key="${m.key}">▶ Play</button>
+          <button type="button" class="btn btn--ghost" data-action="open-detail" data-key="${m.key}">ⓘ More Info</button>
+          <button type="button" class="btn btn--icon" data-action="toggle-list" data-key="${m.key}" title="My List">${inList ? "✓" : "＋"}</button>
+        </div>
+      </div>
+    </div>`;
+  }).join("");
+  const dots = items.map((_, i) => `<button type="button" class="hero__indicator ${i === heroState.current ? "is-active" : ""}" data-action="hero-dot" data-index="${i}" aria-label="Slide ${i + 1}"></button>`).join("");
+  return `<section class="hero" id="hero">
+    ${slides}
+    <div class="hero__nav">
+      <button type="button" class="hero__arrow" data-action="hero-prev" aria-label="Previous">‹</button>
+      <button type="button" class="hero__arrow" data-action="hero-next" aria-label="Next">›</button>
+    </div>
+    <div class="hero__indicators">${dots}</div>
+  </section>`;
+}
+
+function startHeroAuto() {
+  clearInterval(heroState.timer);
+  if (heroState.total <= 1) return;
+  heroState.timer = setInterval(() => goHero(heroState.current + 1), 7000);
+}
+function goHero(index) {
+  if (heroState.total <= 0) return;
+  heroState.current = (index + heroState.total) % heroState.total;
+  const hero = document.getElementById("hero");
+  if (!hero) return;
+  hero.querySelectorAll(".hero__slide").forEach((s, i) => s.classList.toggle("is-active", i === heroState.current));
+  hero.querySelectorAll(".hero__indicator").forEach((d, i) => d.classList.toggle("is-active", i === heroState.current));
+}
+
+/* --------------------------------------------------------------- pages */
+function renderNeedKey() {
+  return `<div class="onboard">
+    <div class="onboard__card">
+      <div class="onboard__logo">CV</div>
+      <h1>Welcome to CineVault</h1>
+      <p>Add a free <strong>TMDB API key</strong> to unlock movies, series & animation. Your key is stored only in this browser.</p>
+      <ol class="onboard__steps">
+        <li>Open <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">themoviedb.org/settings/api</a></li>
+        <li>Request a free <strong>v3 API Key</strong></li>
+        <li>Paste it in Settings below</li>
+      </ol>
+      <button type="button" class="btn btn--play" data-action="open-settings">⚙ Open Settings</button>
+    </div>
+  </div>`;
+}
+
+function renderLoadError(state) {
+  if (state.status === "badkey") {
+    return `<div class="state-msg"><h2>Invalid TMDB key</h2><p>Your API key was rejected. Update it in Settings.</p>
+      <button type="button" class="btn btn--play" data-action="open-settings">Open Settings</button></div>`;
   }
-  updateDisplay(savedRating);
-  blocks.forEach(block => {
-    const score = Number(block.dataset.score);
-    block.addEventListener("mouseenter", () => updateDisplay(score));
-    block.addEventListener("click", () => {
-      const currentScore = deferredMode ? Number(container.dataset.selectedRating || 0) : Number(getEntry(id)?.rating || 0);
-      const nextScore = currentScore === score ? 0 : score;
-      if (deferredMode) { container.dataset.selectedRating = String(nextScore); updateDisplay(nextScore); return; }
-      const latestEntry = getEntry(id); if (!latestEntry) return; latestEntry.rating = nextScore; saveData(); updateDisplay(nextScore);
-    });
-  });
-  blocksRow.addEventListener("mouseleave", () => { const resetScore = deferredMode ? Number(container.dataset.selectedRating || 0) : Number(getEntry(id)?.rating || 0); updateDisplay(resetScore); });
+  return `<div class="state-msg"><h2>Couldn't load titles</h2><p>Check your connection and try again.</p>
+    <button type="button" class="btn btn--play" data-action="retry-load">Retry</button></div>`;
 }
-function finalizeCompletion(id) {
-  const entry = getEntry(id); if (!entry) return;
-  entry.status = "completed"; entry.completedAt = Date.now(); saveData(); renderApp();
-  showToast(`🎉 ${entry.title} marked complete!`, "success");
-  window.clearTimeout(completionReturnTimer); completionReturnTimer = window.setTimeout(() => renderTab("home"), 3000);
-}
-function showCompletionRatingPrompt(id) {
-  const entry = getEntry(id); if (!entry) return;
-  if (entry.rating > 0) { finalizeCompletion(id); return; }
-  const existingOverlay = document.querySelector(".rating-overlay"); if (existingOverlay) existingOverlay.remove();
-  const overlay = document.createElement("div"); overlay.className = "rating-overlay";
-  overlay.innerHTML = `<div class="rating-overlay-box">${entry.cover ? `<img class="rating-overlay-cover" src="${escapeHtml(entry.cover)}" alt="${escapeHtml(getDisplayTitle(entry))}">` : ""}<div class="rating-overlay-title">${escapeHtml(getDisplayTitle(entry))}</div><div class="rating-overlay-sub">You finished it! How would you rate it?</div><div id="completionRatingContainer" data-rating-mode="deferred" data-selected-rating="0"></div><button type="button" class="rating-save-btn" data-action="save-completion-rating" data-id="${id}">Save Rating</button><button type="button" class="rating-skip-link" data-action="skip-completion-rating" data-id="${id}">Skip</button></div>`;
-  document.body.appendChild(overlay); renderRatingComponent(id, "completionRatingContainer");
-  overlay.querySelector(".rating-save-btn")?.addEventListener("click", () => {
-    const overlayRating = document.getElementById("completionRatingContainer");
-    const score = Number((overlayRating && overlayRating.dataset.selectedRating) || 0);
-    const latestEntry = getEntry(id);
-    if (latestEntry && score > 0 && latestEntry.rating === 0) { latestEntry.rating = score; saveData(); showToast(`⭐ ${score}/10 - ${getRatingLabel(score)}`, "success"); }
-    overlay.remove(); finalizeCompletion(id);
-  });
-  overlay.querySelector(".rating-skip-link")?.addEventListener("click", () => { overlay.remove(); finalizeCompletion(Number(overlay.dataset.id)); });
-}
-async function handleWatchOrderCardClick(anilistId, cardData) {
-  const existing = getEntryByAnimeId(anilistId);
-  if (existing) openWatchView(existing.id); else { await addToLibrary(cardData, "watching", { toast: false, render: false }); showToast(`Added ${cardData.title.romaji} to your library`, "info"); openWatchView(cardData.id); }
-}
-function quickWatchNow(anilistData) {
-  const existing = getEntryByAnimeId(anilistData.id);
-  if (existing) openWatchView(existing.id); else { addToLibrary(anilistData, "watching", { toast: false, render: false }); showToast(`Added ${anilistData.title.romaji} - opening player`, "info"); openWatchView(anilistData.id); }
-}
-function removeFromLibrary(id) {
-  const entry = getEntry(id); if (!entry) { showToast("Title not found in library.", "error"); return; }
-  const title = getDisplayTitle(entry); delete userData[String(id)]; saveData();
-  if (currentWatchId === id) closeWatchView();
-  if (uiState.overlay && uiState.overlay.id === id) uiState.overlay = null;
-  if (uiState.inlineStatusPicker && uiState.inlineStatusPicker.id === id) uiState.inlineStatusPicker = null;
-  renderApp(); showToast(`Removed "${title}" from your library.`, "info");
-}
-function renderWatchView() {
-  const entry = getEntry(currentWatchId); if (!entry) return renderEmptyState("!", "Title missing", "This anime is no longer in your library.");
-  const totalEpisodes = getPlayableEpisodeCount(entry);
-  const currentUrl = buildStreamUrl(entry, currentEpisode, entry.language, uiState.watch.currentProvider);
-  const provider = STREAM_PROVIDERS[uiState.watch.currentProvider] || STREAM_PROVIDERS[0];
-  const fallbackUrl = `https://hianime.re/search?keyword=${encodeURIComponent(getDisplayTitle(entry))}`;
-  const progressLabel = `${entry.episodesWatched || 0} / ${entry.episodes || "?"} episodes watched`;
-  return `<div class="page page--watch"><div class="watch-layout" id="watchViewContainer">
 
-    <!-- LEFT SIDEBAR: title, meta, rating, status, action buttons only -->
-    <aside class="watch-sidebar">
-      <div class="watch-meta">
-        <div class="watch-title">${escapeHtml(getDisplayTitle(entry))}</div>
-        <div class="watch-meta__row">
-          <span class="${getStatusClass(entry.status)}">${escapeHtml(STATUS_LABELS[entry.status])}</span>
-          ${entry.averageScore ? `<span class="watch-badge">AniList ${entry.averageScore}</span>` : ""}
-          ${entry.year ? `<span class="watch-badge">${entry.year}</span>` : ""}
-        </div>
+function renderCatalogPage(page, heading, subtitle) {
+  const state = catalog[page];
+  if (!hasKey()) return renderNeedKey();
+  if (state.status === "loading" || state.status === "idle") {
+    return `<div class="catalog">${page === "home" ? "" : `<div class="page-hero"><h1>${escapeHtml(heading)}</h1></div>`}${renderSkeletonRows()}</div>`;
+  }
+  if (state.status === "error" || state.status === "badkey") return renderLoadError(state);
+
+  let heroHtml = "";
+  let rows = state.rows;
+  if (page === "home") {
+    heroHtml = renderHero(pickHeroItems(state.rows));
+    rows = [...state.rows, ...(state.recRows || [])];
+  } else {
+    heroHtml = `<div class="page-hero"><h1>${escapeHtml(heading)}</h1>${subtitle ? `<p>${escapeHtml(subtitle)}</p>` : ""}</div>`;
+  }
+  const continueRow = page === "home" ? renderContinueSection() : "";
+  return `<div class="catalog">${heroHtml}${continueRow}${rows.map(renderRow).join("")}</div>`;
+}
+
+function renderContinueSection() {
+  const entries = getEntries()
+    .filter((e) => e.status === "watching" || (e.status === "paused"))
+    .sort((a, b) => (b.lastWatched || b.dateAdded) - (a.lastWatched || a.dateAdded));
+  if (!entries.length) return "";
+  const trackId = "row-continue";
+  return `<section class="row row--continue">
+    <div class="row__head"><h2 class="row__title">Continue Watching</h2>
+      <div class="row__controls">
+        <button type="button" class="scroll-btn" data-action="row-scroll" data-target="${trackId}" data-dir="prev" aria-label="Scroll left">‹</button>
+        <button type="button" class="scroll-btn" data-action="row-scroll" data-target="${trackId}" data-dir="next" aria-label="Scroll right">›</button>
       </div>
-      <div class="watch-sidebar-bottom">
-        <div class="watch-progress-label">${escapeHtml(progressLabel)}</div>
-        <div id="watchViewRatingContainer"></div>
-        <div>
-          <label class="muted" for="watchStatusSelect">Status</label>
-          <select id="watchStatusSelect" class="select" data-status-select="${entry.id}">
-            ${STATUS_OPTIONS.map(status => `<option value="${status}" ${entry.status === status ? "selected" : ""}>${STATUS_LABELS[status]}</option>`).join("")}
-          </select>
-        </div>
-      </div>
-      <div class="watch-sidebar-footer-buttons">
-        <button type="button" class="action-button" data-action="watch-mark">Mark Watched</button>
-        <button type="button" class="secondary-button" data-action="remove-from-library" data-id="${entry.id}">Remove from Library</button>
-        <button type="button" class="secondary-button" data-action="watch-back">&larr; Back</button>
-      </div>
-    </aside>
-
-    <!-- CENTRE: video player + controls -->
-    <section class="watch-player">
-      <div class="watch-player__frame">${currentUrl && !uiState.watch.forceFallback
-        ? `<iframe src="${escapeHtml(currentUrl)}" title="${escapeHtml(getDisplayTitle(entry))}" allow="autoplay; fullscreen" allowfullscreen data-watch-iframe></iframe>`
-        : `<div class="watch-player__fallback"><div class="watch-player__fallback-card"><div class="watch-title">No stream available for this title via ${provider.name}</div><div class="muted">Come back and mark episodes watched manually using the episode list on the right.</div><a class="action-button" href="${escapeHtml(fallbackUrl)}" target="_blank" rel="noopener">Search on HiAnime &rarr;</a></div></div>`
-      }</div>
-      <div class="watch-player__controls">
-        <button type="button" class="secondary-button" data-action="watch-prev" ${currentEpisode <= 1 ? "disabled" : ""}>&larr; Prev</button>
-        <strong class="watch-player__ep-label">Ep ${currentEpisode} / ${entry.episodes || "?"}</strong>
-        <button type="button" class="secondary-button" data-action="watch-next" ${currentEpisode >= totalEpisodes ? "disabled" : ""}>Next &rarr;</button>
-        <button type="button" class="secondary-button" data-action="switch-provider" ${STREAM_PROVIDERS.length <= 1 ? "disabled" : ""} title="Switch provider">${provider.name}</button>
-        <button type="button" class="secondary-button watch-fs-btn" data-action="toggle-fullscreen" title="Fullscreen (F)">&#x26F6;</button>
-      </div>
-    </section>
-
-    <!-- RIGHT PANEL: SUB/DUB → episode groups → episode list -->
-    <aside class="watch-episode-panel">
-
-      <!-- 1. SUB / DUB toggle — always first -->
-      <div class="watch-episode-panel__lang">
-        <div class="language-toggle" role="group" aria-label="Audio language">
-          <button type="button" class="${entry.language === "sub" ? "is-active" : ""}" data-action="switch-language" data-lang="sub">SUB</button>
-          <button type="button" class="${entry.language === "dub" ? "is-active" : ""}" data-action="switch-language" data-lang="dub">DUB</button>
-        </div>
-      </div>
-
-      <!-- 2. Episode group chips — only rendered when >50 eps (paintEpisodeList fills this) -->
-      <div id="episodeGroupSelector"></div>
-
-      <!-- 3. Episode list — numbered, named, scrollable -->
-      <div class="episode-list" id="episodeList"></div>
-
-    </aside>
-
-  </div><div id="watchOrderMount"></div></div>`;
+    </div>
+    <div class="row__viewport" id="${trackId}" data-row-track="${trackId}"><div class="row__track">${entries.map(renderContinueCard).join("")}</div></div>
+  </section>`;
 }
 
-/* CARDS */
-function addToLibrary(anilistData, status, options = {}) {
-  const media = adaptAniListMedia(anilistData);
-  const existing = getEntry(media.id);
-  const next = normalizeEntry({ ...(existing || {}), id: media.id, title: media.title.romaji || (existing && existing.title) || "Untitled", titleEnglish: media.title.english || (existing && existing.titleEnglish) || "", cover: media.coverImage.large || (existing && existing.cover) || "", banner: media.bannerImage || (existing && existing.banner) || "", episodes: media.episodes || (existing && existing.episodes) || 0, status: status || (existing && existing.status) || "untracked", episodesWatched: (existing && existing.episodesWatched) || 0, language: (existing && existing.language) || "sub", rating: (existing && existing.rating) || 0, dateAdded: (existing && existing.dateAdded) || Date.now(), lastWatched: (existing && existing.lastWatched) || 0, completedAt: (existing && existing.completedAt) || 0, notes: (existing && existing.notes) || "", genres: media.genres || (existing && existing.genres) || [], year: media.seasonYear || (existing && existing.year) || 0, anilistId: media.id, sessionLog: (existing && existing.sessionLog) || [], averageScore: media.averageScore || (existing && existing.averageScore) || 0 });
-  if (!next) return;
-  userData[String(next.id)] = next; saveData(); uiState.inlineStatusPicker = null; uiState.overlay = null;
-  if (options.render !== false) renderApp(); if (options.toast !== false) showToast(`${getDisplayTitle(next)} added to your library.`, "success");
-}
-function getAniListResultBySource(source, id) { const bucket = source === "browse" ? uiState.browse.results : uiState.search.results; return bucket.find((item) => Number(item.id) === Number(id)) || null; }
-function openStatusPicker(source, id) {
-  const media = getAniListResultBySource(source, id); if (!media) return;
-  if (uiState.inlineStatusPicker && uiState.inlineStatusPicker.source === source && Number(uiState.inlineStatusPicker.id) === Number(id)) { uiState.inlineStatusPicker = null; renderApp(); return; }
-  uiState.inlineStatusPicker = { source, id: Number(id) }; renderApp();
-  const closeHandler = (clickEvent) => {
-    const pickerElement = document.querySelector(`.status-picker[data-picker-id="${source}-${id}"]`);
-    if (pickerElement && !pickerElement.contains(clickEvent.target)) { uiState.inlineStatusPicker = null; renderApp(); document.removeEventListener("click", closeHandler); }
+/* My List ----------------------------------------------------------------- */
+function getFilteredLibrary() {
+  let entries = getEntries();
+  if (uiState.library.filter !== "all") entries = entries.filter((e) => e.status === uiState.library.filter);
+  const q = uiState.library.query.trim().toLowerCase();
+  if (q) entries = entries.filter((e) => e.title.toLowerCase().includes(q));
+  const sorters = {
+    recent: (a, b) => (b.lastWatched || b.dateAdded) - (a.lastWatched || a.dateAdded),
+    added: (a, b) => b.dateAdded - a.dateAdded,
+    alpha: (a, b) => a.title.localeCompare(b.title),
+    rating: (a, b) => (b.rating || 0) - (a.rating || 0),
+    year: (a, b) => (b.year || 0) - (a.year || 0),
   };
-  setTimeout(() => document.addEventListener("click", closeHandler), 0);
+  return entries.sort(sorters[uiState.library.sort] || sorters.recent);
 }
-function openDetailOverlay(id) { const entry = getEntry(id); if (!entry) return; uiState.overlay = { type: "detail", id }; renderApp(); }
 
-/* MODALS */
+function renderMyList() {
+  const entries = getFilteredLibrary();
+  const filters = [["all", "All"], ...STATUS_OPTIONS.map((s) => [s, STATUS_LABELS[s]])];
+  return `<div class="catalog mylist">
+    <div class="page-hero"><h1>My List</h1><p>Everything you've saved — stored locally in this browser.</p></div>
+    <div class="toolbar">
+      <div class="chips">${filters.map(([v, l]) => `<button type="button" class="chip ${uiState.library.filter === v ? "is-active" : ""}" data-action="set-library-filter" data-filter="${v}">${l}</button>`).join("")}</div>
+      <div class="toolbar__right">
+        <input id="librarySearchInput" class="input" type="search" placeholder="Filter your list" value="${escapeHtml(uiState.library.query)}">
+        <select id="librarySortSelect" class="select" aria-label="Sort">
+          ${[["recent", "Recently watched"], ["added", "Recently added"], ["alpha", "A–Z"], ["rating", "My rating"], ["year", "Year"]].map(([v, l]) => `<option value="${v}" ${uiState.library.sort === v ? "selected" : ""}>${l}</option>`).join("")}
+        </select>
+      </div>
+    </div>
+    ${entries.length
+      ? `<div class="grid">${entries.map(renderCard).join("")}</div>`
+      : `<div class="state-msg"><h2>Nothing here yet</h2><p>Browse and tap ＋ to build your list.</p><button type="button" class="btn btn--play" data-action="tab" data-tab="home">Browse titles</button></div>`}
+  </div>`;
+}
+
+/* Search ------------------------------------------------------------------ */
+function renderSearch() {
+  const { query, results, status } = uiState.search;
+  let body;
+  if (!hasKey()) body = renderNeedKey();
+  else if (!query.trim()) body = `<div class="state-msg"><h2>Search CineVault</h2><p>Find any movie or series by title.</p></div>`;
+  else if (status === "loading") body = `<div class="grid">${Array.from({ length: 12 }).map(() => `<div class="skel-card skel-card--tall"></div>`).join("")}</div>`;
+  else if (status === "error") body = `<div class="state-msg"><h2>Search failed</h2><p>Try again in a moment.</p></div>`;
+  else if (!results.length) body = `<div class="state-msg"><h2>No results for “${escapeHtml(query)}”</h2><p>Check the spelling or try another title.</p></div>`;
+  else body = `<div class="grid">${results.map(renderCard).join("")}</div>`;
+  return `<div class="catalog">
+    <div class="page-hero"><h1>${query.trim() ? `Results for “${escapeHtml(query)}”` : "Search"}</h1></div>
+    <div id="searchResults">${body}</div>
+  </div>`;
+}
+
+function scheduleSearch(query) {
+  uiState.search.query = query;
+  window.clearTimeout(searchTimer);
+  if (!query.trim()) { uiState.search.results = []; uiState.search.status = "idle"; patchSearch(); return; }
+  uiState.search.status = "loading";
+  patchSearch();
+  searchTimer = window.setTimeout(() => runSearch(query), 350);
+}
+async function runSearch(query) {
+  if (!hasKey()) return;
+  try {
+    const data = await tmdbFetch("/search/multi", { query, include_adult: false, page: 1 });
+    if (uiState.search.query !== query) return; // stale
+    uiState.search.results = (data.results || []).map((r) => normalizeMedia(r)).filter(Boolean);
+    uiState.search.status = "ready";
+  } catch {
+    uiState.search.status = "error";
+  }
+  patchSearch();
+}
+/* Surgical update so the nav search input never loses focus while typing. */
+function patchSearch() {
+  if (uiState.tab !== "search" || uiState.watch || uiState.overlay) return;
+  const container = document.getElementById("searchResults");
+  if (!container) { renderApp(); return; }
+  const { query, results, status } = uiState.search;
+  if (!query.trim()) container.innerHTML = `<div class="state-msg"><h2>Search CineVault</h2><p>Find any movie or series by title.</p></div>`;
+  else if (status === "loading") container.innerHTML = `<div class="grid">${Array.from({ length: 12 }).map(() => `<div class="skel-card skel-card--tall"></div>`).join("")}</div>`;
+  else if (status === "error") container.innerHTML = `<div class="state-msg"><h2>Search failed</h2><p>Try again in a moment.</p></div>`;
+  else if (!results.length) container.innerHTML = `<div class="state-msg"><h2>No results for “${escapeHtml(query)}”</h2></div>`;
+  else container.innerHTML = `<div class="grid">${results.map(renderCard).join("")}</div>`;
+}
+
+/* --------------------------------------------------------------- detail */
+function openDetail(key) {
+  uiState.overlay = { type: "detail", key, trailer: false };
+  uiState.detailLoading = !detailCache[key];
+  renderApp();
+  if (!detailCache[key]) {
+    fetchDetail(key).then(() => {
+      uiState.detailLoading = false;
+      if (uiState.overlay && uiState.overlay.key === key) renderApp();
+    }).catch(() => {
+      uiState.detailLoading = false;
+      if (uiState.overlay && uiState.overlay.key === key) { showToast("Couldn't load details.", "error"); renderApp(); }
+    });
+  }
+}
+
 function renderOverlay() {
   if (!uiState.overlay) return "";
+  if (uiState.overlay.type === "settings") return renderSettingsOverlay();
+  return renderDetailOverlay();
+}
 
-  /* ── Add to List modal — centered, not tied to hover state ── */
-  if (uiState.overlay.type === "add-modal") {
-    const source = uiState.overlay.source;
-    const id = uiState.overlay.id;
-    const media = getAniListResultBySource(source, id);
-    if (!media) return "";
-    const title = media.title.english || media.title.romaji;
-    const existing = getEntryByAnimeId(id);
-    const currentStatus = existing ? existing.status : null;
+function renderDetailOverlay() {
+  const key = uiState.overlay.key;
+  const media = resolveMedia(key);
+  const detail = detailCache[key];
+  const entry = getEntry(key);
+  if (!media && !detail) return "";
+  const base = detail || media;
+  const title = base.title || base.name || media.title;
+  const backdrop = img((detail && detail.backdrop_path) || media.backdrop, "original");
+  const poster = img((detail && detail.poster_path) || media.poster, "w500");
+  const overview = (detail && detail.overview) || media.overview || "";
+  const mediaType = media.mediaType;
+  const year = mediaType === "tv"
+    ? yearFromDate(detail && detail.first_air_date) || media.year
+    : yearFromDate(detail && detail.release_date) || media.year;
+  const vote = formatVote((detail && detail.vote_average) || media.voteAverage);
+  const runtime = detail ? (mediaType === "tv" ? (detail.episode_run_time && detail.episode_run_time[0]) : detail.runtime) : 0;
+  const genres = detail && detail.genres ? detail.genres.map((g) => g.name) : genreNames(media.genreIds, 4);
+  const seasons = detail && mediaType === "tv" ? detail.number_of_seasons : 0;
+  const episodes = detail && mediaType === "tv" ? detail.number_of_episodes : 0;
+  const cast = detail && detail.credits ? (detail.credits.cast || []).slice(0, 8) : [];
+  const trailer = detail && detail.videos ? (detail.videos.results || []).find((v) => v.site === "YouTube" && (v.type === "Trailer" || v.type === "Teaser")) : null;
+  const similar = detail ? [...((detail.recommendations && detail.recommendations.results) || []), ...((detail.similar && detail.similar.results) || [])]
+    .map((r) => normalizeMedia(r, r.media_type || mediaType)).filter(Boolean) : [];
+  const seen = new Set();
+  const similarUnique = similar.filter((m) => (m.key !== key) && !seen.has(m.key) && seen.add(m.key)).slice(0, 12);
 
-    const STATUS_ICONS = {
-      watching: "▶", completed: "✓", queued: "☰",
-      "plan-to-watch": "🔖", dropped: "✕", paused: "⏸", untracked: "○"
-    };
-    const STATUS_COLORS = {
-      watching: "var(--badge-watching)", completed: "var(--badge-completed)",
-      queued: "var(--badge-queued)", "plan-to-watch": "var(--badge-plan)",
-      dropped: "var(--badge-dropped)", paused: "var(--badge-paused)",
-      untracked: "var(--text3)"
-    };
+  const statusBtns = STATUS_OPTIONS.map((s) =>
+    `<button type="button" class="seg ${entry && entry.status === s ? "is-active" : ""}" data-action="set-status" data-key="${key}" data-status="${s}">${STATUS_LABELS[s]}</button>`
+  ).join("");
 
-    const rows = STATUS_OPTIONS.map(status => {
-      const isActive = currentStatus === status;
-      return `<button type="button"
-        class="add-modal__row${isActive ? " add-modal__row--active" : ""}"
-        data-action="quick-add-status"
-        data-source="${source}"
-        data-id="${id}"
-        data-status="${status}">
-        <span class="add-modal__row-icon" style="color:${STATUS_COLORS[status]}">${STATUS_ICONS[status] || "○"}</span>
-        <span class="add-modal__row-label">${escapeHtml(STATUS_LABELS[status])}</span>
-        ${isActive ? `<span class="add-modal__row-check">✓</span>` : ""}
-      </button>`;
-    }).join("");
+  const metaBits = [year, mediaType === "tv" ? formatCount(seasons || media.totalSeasons || 0, "season") : formatRuntime(runtime), vote ? `★ ${vote}` : "", typeLabel(mediaType)].filter(Boolean);
 
-    return `<div class="overlay" data-action="close-overlay">
-      <div class="add-modal" role="dialog" aria-modal="true" aria-label="Add to list" data-overlay-card>
-        <div class="add-modal__header">
-          <div class="add-modal__cover">
-            ${media.coverImage && media.coverImage.large
-              ? `<img src="${escapeHtml(media.coverImage.large)}" alt="${escapeHtml(title)}">`
-              : ""}
+  return `<div class="overlay" data-action="close-overlay">
+    <div class="modal" role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}" data-stop="1">
+      <button type="button" class="modal__close" data-action="close-overlay" aria-label="Close">✕</button>
+      <div class="modal__hero">
+        ${uiState.overlay.trailer && trailer
+          ? `<div class="modal__trailer"><iframe src="${YT_BASE}${trailer.key}?autoplay=1&rel=0" title="Trailer" allow="autoplay; encrypted-media; fullscreen" allowfullscreen></iframe></div>`
+          : `<div class="modal__backdrop">${backdrop ? `<img src="${backdrop}" alt="">` : ""}</div><div class="modal__hero-scrim"></div>`}
+        <div class="modal__hero-body">
+          <h2 class="modal__title">${escapeHtml(title)}</h2>
+          <div class="modal__actions">
+            <button type="button" class="btn btn--play" data-action="open-watch" data-key="${key}">▶ Play</button>
+            ${trailer ? `<button type="button" class="btn btn--ghost" data-action="${uiState.overlay.trailer ? "stop-trailer" : "play-trailer"}" data-key="${key}">${uiState.overlay.trailer ? "■ Stop" : "🎬 Trailer"}</button>` : ""}
+            <button type="button" class="btn btn--icon" data-action="toggle-list" data-key="${key}" title="My List">${entry ? "✓" : "＋"}</button>
           </div>
-          <div class="add-modal__info">
-            <div class="add-modal__title">${escapeHtml(title)}</div>
-            <div class="add-modal__sub muted">Choose a status to add to your library</div>
-          </div>
-          <button type="button" class="add-modal__close" data-action="close-overlay" aria-label="Close">✕</button>
         </div>
-        <div class="add-modal__rows">${rows}</div>
       </div>
-    </div>`;
-  }
-
-  if (uiState.overlay.type === "status-picker") {
-    const media = getAniListResultBySource(uiState.overlay.source, uiState.overlay.id); if (!media) return "";
-    const title = media.title.english || media.title.romaji;
-    return `<div class="overlay" data-action="close-overlay"><div class="overlay-card" role="dialog" aria-modal="true" aria-label="Add to library" data-overlay-card><div class="overlay-card__meta"><div class="overlay-card__title">Add ${escapeHtml(title)}</div><div class="muted">Choose how this title should enter your private library.</div></div><div class="status-picker"><button type="button" class="action-button" data-action="picker-status" data-source="${uiState.overlay.source}" data-id="${media.id}" data-status="watching">Start Watching</button><button type="button" class="secondary-button" data-action="picker-status" data-source="${uiState.overlay.source}" data-id="${media.id}" data-status="queued">Add to Queue</button><button type="button" class="secondary-button" data-action="picker-status" data-source="${uiState.overlay.source}" data-id="${media.id}" data-status="plan-to-watch">Save for Later</button><button type="button" class="nav-button" data-action="close-overlay">Cancel</button></div></div></div>`;
-  }
-  if (uiState.overlay.type === "detail") {
-    const entry = getEntry(uiState.overlay.id); if (!entry) return "";
-    return `<div class="overlay" data-action="close-overlay"><div class="overlay-card" role="dialog" aria-modal="true" aria-label="Anime details" data-overlay-card><div class="overlay-card__hero"><div class="overlay-card__cover">${entry.cover ? `<img src="${escapeHtml(entry.cover)}" alt="${escapeHtml(getDisplayTitle(entry))}">` : ""}</div><div class="overlay-card__meta"><div class="overlay-card__title">${escapeHtml(getDisplayTitle(entry))}</div><div class="muted">${escapeHtml(formatCount(entry.episodes || 0, "episode"))}${entry.year ? ` • ${entry.year}` : ""}</div><div class="watch-meta__row"><span class="${getStatusClass(entry.status)}">${escapeHtml(STATUS_LABELS[entry.status])}</span>${entry.averageScore ? `<span class="watch-badge">AniList ${entry.averageScore}</span>` : ""}</div><select class="select" data-status-select="${entry.id}">${STATUS_OPTIONS.map(status => `<option value="${status}" ${entry.status === status ? "selected" : ""}>${STATUS_LABELS[status]}</option>`).join("")}</select></div></div><div class="overlay-card__actions"><button type="button" class="action-button" data-action="open-watch" data-id="${entry.id}"> &#9654; Start Watching</button><button type="button" class="secondary-button" data-action="remove-from-library" data-id="${entry.id}">Remove from Library</button><button type="button" class="nav-button" data-action="close-overlay">Close</button></div></div></div>`;
-  }
-  if (uiState.overlay.type === "settings") {
-    const accentColors = [
-      { name: "Violet",  value: "#7c3aed" },
-      { name: "Blue",    value: "#2563eb" },
-      { name: "Cyan",    value: "#0891b2" },
-      { name: "Emerald", value: "#059669" },
-      { name: "Orange",  value: "#ea580c" },
-      { name: "Pink",    value: "#db2777" },
-      { name: "Red",     value: "#dc2626" },
-      { name: "Yellow",  value: "#ca8a04" }
-    ];
-    const intensity = uiState.colorIntensity !== undefined ? uiState.colorIntensity : 100;
-    return `<div class="overlay overlay--settings" data-action="close-overlay">
-      <div class="settings-card" role="dialog" aria-modal="true" aria-label="Settings" data-overlay-card>
-
-        <div class="settings-card__title">Settings</div>
-
-        <!-- Accent Color -->
-        <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:6px;">
-          <div class="settings-row__label">
-            <div class="settings-row__label-text">Accent Color</div>
+      <div class="modal__body">
+        ${uiState.detailLoading ? `<div class="modal__loading">Loading details…</div>` : ""}
+        <div class="modal__cols">
+          <div class="modal__main">
+            <div class="modal__meta">${metaBits.map((b) => `<span>${escapeHtml(String(b))}</span>`).join("<i>•</i>")}</div>
+            <p class="modal__overview">${escapeHtml(overview) || "No description available."}</p>
+            ${mediaType === "tv" && episodes ? `<div class="modal__sub">${formatCount(episodes, "episode")} across ${formatCount(seasons, "season")}</div>` : ""}
+            <div class="modal__track-status">
+              <div class="modal__label">In your list</div>
+              <div class="seg-group">${statusBtns}${entry ? `<button type="button" class="seg seg--danger" data-action="remove" data-key="${key}">Remove</button>` : ""}</div>
+            </div>
+            ${renderRatingComponent(key)}
+            ${entry ? `<div class="modal__notes"><div class="modal__label">Notes</div><textarea id="notesField" class="textarea" data-key="${key}" placeholder="Your private notes…">${escapeHtml(entry.notes)}</textarea></div>` : ""}
           </div>
-          <div class="settings-swatches">
-            ${accentColors.map(c => `<button type="button" class="settings-swatch ${uiState.accentColor === c.value ? "is-active" : ""}" data-action="set-accent" data-color="${c.value}" style="background:${c.value};" aria-label="${c.name}"></button>`).join("")}
-          </div>
+          <aside class="modal__aside">
+            ${poster ? `<img class="modal__poster" src="${poster}" alt="${escapeHtml(title)}">` : ""}
+            ${genres.length ? `<div class="modal__genres">${genres.map((g) => `<span class="tag">${escapeHtml(g)}</span>`).join("")}</div>` : ""}
+          </aside>
         </div>
-
-        <hr class="settings-divider">
-
-        <!-- Color Intensity -->
-        <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:6px;">
-          <div class="settings-row__label">
-            <div class="settings-row__label-text">Color Intensity</div>
-            <div class="settings-row__hint">Adjusts how strong the accent color appears across the UI</div>
-          </div>
-          <div class="settings-slider-wrap" style="width:100%;">
-            <input type="range" class="settings-slider" min="0" max="100" step="1" value="${intensity}" data-action="set-intensity" aria-label="Color intensity">
-            <span class="settings-slider-value" id="intensityDisplay">${intensity}%</span>
-          </div>
-        </div>
-
-        <hr class="settings-divider">
-
-        <!-- Compact View -->
-        <label class="settings-row" style="cursor:pointer;">
-          <div class="settings-row__label">
-            <div class="settings-row__label-text">Compact View</div>
-            <div class="settings-row__hint">Reduces card sizes and spacing for a denser layout</div>
-          </div>
-          <input type="checkbox" class="settings-checkbox" ${uiState.compactView ? "checked" : ""} data-action="toggle-compact-view" aria-label="Compact View">
-        </label>
-
-        <hr class="settings-divider">
-
-        <!-- Disable Animations -->
-        <label class="settings-row" style="cursor:pointer;">
-          <div class="settings-row__label">
-            <div class="settings-row__label-text">Disable Animations</div>
-            <div class="settings-row__hint">Turns off transitions and animated effects across the platform</div>
-          </div>
-          <input type="checkbox" class="settings-checkbox" ${uiState.disableAnimations ? "checked" : ""} data-action="toggle-no-animations" aria-label="Disable Animations">
-        </label>
-
-        <!-- Footer: saved flash + close button -->
-        <div class="settings-footer">
-          <span class="saved-flash" id="settingsSavedFlash">&#10003; Saved</span>
-          <button type="button" class="nav-button" data-action="close-overlay">Close</button>
-        </div>
-
+        ${cast.length ? `<div class="modal__section"><div class="modal__label">Cast</div><div class="cast-row">${cast.map((c) => `<div class="cast"><div class="cast__img">${c.profile_path ? `<img loading="lazy" src="${img(c.profile_path, "w185")}" alt="${escapeHtml(c.name)}">` : `<div class="cast__noimg">${escapeHtml((c.name || "?").charAt(0))}</div>`}</div><div class="cast__name">${escapeHtml(c.name)}</div><div class="cast__role">${escapeHtml(c.character || "")}</div></div>`).join("")}</div></div>` : ""}
+        ${similarUnique.length ? `<div class="modal__section"><div class="modal__label">More like this</div><div class="grid grid--compact">${similarUnique.map(renderCard).join("")}</div></div>` : ""}
       </div>
-    </div>`;
+    </div>
+  </div>`;
+}
+
+function renderRatingComponent(key) {
+  const entry = getEntry(key);
+  const current = entry ? entry.rating : 0;
+  const stars = Array.from({ length: 10 }).map((_, i) => {
+    const v = i + 1;
+    return `<button type="button" class="rate-star ${v <= current ? "is-on" : ""}" data-action="set-rating" data-key="${key}" data-rating="${v}" aria-label="Rate ${v}">★</button>`;
+  }).join("");
+  return `<div class="modal__rate"><div class="modal__label">Your rating ${current ? `— ${current}/10 · ${getRatingLabel(current)}` : ""}</div>
+    <div class="rate-stars">${stars}${current ? `<button type="button" class="rate-clear" data-action="set-rating" data-key="${key}" data-rating="0">clear</button>` : ""}</div></div>`;
+}
+
+/* --------------------------------------------------------------- settings */
+function openSettings() { uiState.overlay = { type: "settings" }; renderApp(); }
+function renderSettingsOverlay() {
+  return `<div class="overlay" data-action="close-overlay">
+    <div class="modal modal--settings" role="dialog" aria-modal="true" aria-label="Settings" data-stop="1">
+      <button type="button" class="modal__close" data-action="close-overlay" aria-label="Close">✕</button>
+      <div class="settings">
+        <h2>Settings</h2>
+        <div class="settings__group">
+          <label class="settings__label" for="setKey">TMDB API key (v3)</label>
+          <input id="setKey" class="input" type="password" placeholder="Paste your key" value="${escapeHtml(settings.tmdbKey)}" autocomplete="off">
+          <p class="settings__hint">Get one free at <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">themoviedb.org/settings/api</a>. Stored only in this browser.</p>
+        </div>
+        <div class="settings__group">
+          <label class="settings__label" for="setRegion">Region</label>
+          <select id="setRegion" class="select">
+            ${["US", "GB", "CA", "AU", "IN", "DE", "FR", "ES", "BR", "JP", "KR", "MX"].map((r) => `<option value="${r}" ${settings.region === r ? "selected" : ""}>${r}</option>`).join("")}
+          </select>
+        </div>
+        <div class="settings__group settings__group--row">
+          <label class="settings__toggle"><input id="setAutoNext" type="checkbox" ${settings.autoNext ? "checked" : ""}> Auto-play next episode</label>
+          <label class="settings__toggle"><input id="setTheme" type="checkbox" ${settings.theme === "light" ? "checked" : ""}> Light theme</label>
+        </div>
+        <div class="settings__actions">
+          <button type="button" class="btn btn--play" data-action="save-settings">Save</button>
+          <button type="button" class="btn btn--ghost" data-action="export">⬇ Export library</button>
+          <label class="btn btn--ghost file-btn">⬆ Import<input id="importFile" type="file" accept="application/json" hidden></label>
+        </div>
+        <div class="settings__meta">${formatCount(getEntries().length, "title")} in your library</div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* --------------------------------------------------------------- watch */
+function ensureEntry(media, { markWatching = false } = {}) {
+  let entry = getEntry(media.key);
+  if (!entry) {
+    entry = normalizeEntry({
+      id: media.id, mediaType: media.mediaType, title: media.title, overview: media.overview,
+      poster: media.poster, backdrop: media.backdrop, year: media.year, voteAverage: media.voteAverage,
+      genreIds: media.genreIds, status: markWatching ? "watching" : "watchlist", season: 1, episode: 1,
+    });
+    userData[entry.key] = entry;
+  } else {
+    // refresh display fields from latest media
+    entry.poster = entry.poster || media.poster;
+    entry.backdrop = entry.backdrop || media.backdrop;
+    if (!entry.genreIds.length) entry.genreIds = media.genreIds;
+    if (markWatching && (entry.status === "watchlist" || entry.status === "untracked")) entry.status = "watching";
   }
-  return "";
+  saveData();
+  return entry;
 }
 
-/* TOAST */
-function showToast(message, type = "info") {
-  const toast = document.createElement("div"); toast.className = `toast toast--${type}`;
-  toast.innerHTML = `<div class="toast__title">${escapeHtml(TOAST_TITLES[type] || TOAST_TITLES.info)}</div><div class="toast__body">${escapeHtml(message)}</div>`;
-  toastZone.appendChild(toast); window.setTimeout(() => toast.remove(), 3000);
-}
-
-/**
- * Shows a detailed import-summary notification after a successful import.
- * Lists every restored category with its entry count and colour-coded badge.
- * Auto-dismisses after 8 s; also has an explicit ✕ button.
- *
- * @param {number}  totalImported  - total entries merged into the library
- * @param {Set}     categories     - Set of status strings that received entries
- */
-function showImportSummary(totalImported, categories) {
-  // Build per-category counts from the live userData so the numbers
-  // reflect exactly what ended up in the library.
-  const counts = {};
-  categories.forEach(status => { counts[status] = 0; });
-  getAnimeEntries().forEach(entry => {
-    if (counts.hasOwnProperty(entry.status)) counts[entry.status]++;
-  });
-
-  // Colour map mirrors the badge CSS variables.
-  const badgeColor = {
-    watching:       "var(--badge-watching)",
-    completed:      "var(--badge-completed)",
-    queued:         "var(--badge-queued)",
-    "plan-to-watch":"var(--badge-plan)",
-    dropped:        "var(--badge-dropped)",
-    paused:         "var(--badge-paused)",
-    untracked:      "var(--text3)"
+function openWatch(key) {
+  const media = resolveMedia(key);
+  if (!media) { showToast("Title unavailable.", "error"); return; }
+  const entry = ensureEntry(media, { markWatching: true });
+  previousTab = uiState.tab;
+  uiState.overlay = null;
+  uiState.watch = {
+    key,
+    season: entry.mediaType === "tv" ? entry.season || 1 : 1,
+    episode: entry.mediaType === "tv" ? entry.episode || 1 : 1,
+    provider: 0,
+    streamLoaded: false,
   };
-
-  const rows = Object.entries(counts)
-    .sort((a, b) => b[1] - a[1])
-    .map(([status, count]) => {
-      const label  = STATUS_LABELS[status] || status;
-      const colour = badgeColor[status] || "var(--text2)";
-      return `
-        <div class="import-summary__row">
-          <span class="import-summary__dot" style="background:${colour};"></span>
-          <span class="import-summary__label">${escapeHtml(label)}</span>
-          <span class="import-summary__count" style="color:${colour};">${count}</span>
-        </div>`;
-    }).join("");
-
-  const catCount = categories.size;
-  const panel = document.createElement("div");
-  panel.className = "toast toast--import-summary";
-  panel.setAttribute("role", "status");
-  panel.setAttribute("aria-live", "polite");
-  panel.innerHTML = `
-    <div class="import-summary__head">
-      <div class="import-summary__icon">&#10003;</div>
-      <div class="import-summary__title">Import complete</div>
-      <button type="button" class="import-summary__close" aria-label="Dismiss">&#10005;</button>
-    </div>
-    <div class="import-summary__meta">
-      ${totalImported} ${totalImported === 1 ? "title" : "titles"} restored
-      across ${catCount} ${catCount === 1 ? "category" : "categories"}
-    </div>
-    <div class="import-summary__rows">${rows}</div>
-  `;
-
-  // Dismiss on ✕ click
-  panel.querySelector(".import-summary__close").addEventListener("click", () => {
-    panel.classList.add("is-hiding");
-    setTimeout(() => panel.remove(), 300);
-  });
-
-  toastZone.appendChild(panel);
-
-  // Auto-dismiss after 8 s
-  const autoTimer = setTimeout(() => {
-    if (panel.isConnected) {
-      panel.classList.add("is-hiding");
-      setTimeout(() => panel.remove(), 300);
+  entry.lastWatched = Date.now();
+  saveData();
+  renderApp();
+  // hydrate detail + season info in the background
+  fetchDetail(key).then(() => {
+    const d = detailCache[key];
+    if (d && d._mediaType === "tv") {
+      entry.totalSeasons = d.number_of_seasons || entry.totalSeasons;
+      entry.totalEpisodes = d.number_of_episodes || entry.totalEpisodes;
+      saveData();
     }
-  }, 8000);
-
-  // Cancel auto-dismiss if user hovers (they're reading it)
-  panel.addEventListener("mouseenter", () => clearTimeout(autoTimer));
+    if (uiState.watch && uiState.watch.key === key) renderApp();
+  }).catch(() => {});
+  if (media.mediaType === "tv") loadWatchSeason(key, uiState.watch.season);
 }
 
-/* ══ EXPORT / IMPORT ══════════════════════════════════════════════
-   Schema version 1.
-   Root structure:
-   {
-     schemaVersion : 1,
-     exportedAt    : "<ISO timestamp>",
-     totalEntries  : <number>,
-     library       : {
-       watching    : [...entries],
-       completed   : [...entries],
-       queued      : [...entries],
-       "plan-to-watch" : [...entries],
-       dropped     : [...entries],
-       paused      : [...entries],
-       untracked   : [...entries]
-     },
-     ratings       : { "<id>": <ratingValue>, ... }
-   }
-   Every field that exists on a normalizeEntry() result is included.
-   Ratings are stored both inside each entry AND in the top-level
-   "ratings" map so they are recoverable from either location.
-══════════════════════════════════════════════════════════════════ */
-
-const BACKUP_SCHEMA_VERSION = 1;
-
-/**
- * Build the versioned backup object from live app state (userData).
- * Returns null if the library is empty.
- */
-function buildBackupPayload() {
-  const entries = getAnimeEntries();
-  if (!entries.length) return null;
-
-  // Group entries by status — every STATUS_OPTIONS value gets a bucket.
-  const library = {};
-  STATUS_OPTIONS.forEach(s => { library[s] = []; });
-
-  const ratings = {};
-
-  entries.forEach(entry => {
-    // Serialise every field that normalizeEntry() produces.
-    const serialised = {
-      id:              entry.id,
-      anilistId:       entry.anilistId,
-      title:           entry.title,
-      titleEnglish:    entry.titleEnglish,
-      cover:           entry.cover,
-      banner:          entry.banner,
-      episodes:        entry.episodes,
-      episodesWatched: entry.episodesWatched,
-      status:          entry.status,
-      language:        entry.language,
-      rating:          entry.rating,        // 0 means unrated
-      dateAdded:       entry.dateAdded,
-      lastWatched:     entry.lastWatched,
-      completedAt:     entry.completedAt,
-      notes:           entry.notes,
-      genres:          entry.genres,
-      year:            entry.year,
-      sessionLog:      entry.sessionLog,
-      averageScore:    entry.averageScore
-    };
-
-    const bucket = STATUS_OPTIONS.includes(entry.status) ? entry.status : "untracked";
-    library[bucket].push(serialised);
-
-    // Top-level ratings map (only store entries that have been rated).
-    if (entry.rating > 0) {
-      ratings[String(entry.id)] = entry.rating;
-    }
-  });
-
-  return {
-    schemaVersion: BACKUP_SCHEMA_VERSION,
-    exportedAt:    new Date().toISOString(),
-    totalEntries:  entries.length,
-    library,
-    ratings
-  };
+function loadWatchSeason(key, season) {
+  fetchSeason(key, season).then(() => {
+    if (uiState.watch && uiState.watch.key === key) renderApp();
+  }).catch(() => {});
 }
 
+function closeWatch() {
+  uiState.watch = null;
+  uiState.tab = previousTab || "home";
+  exitFullscreenSafe();
+  renderApp();
+}
+
+function renderWatchView() {
+  const w = uiState.watch;
+  const entry = getEntry(w.key);
+  const media = resolveMedia(w.key);
+  if (!entry || !media) { return `<div class="state-msg">Title unavailable. <button type="button" class="btn" data-action="close-watch">Back</button></div>`; }
+  const isTv = media.mediaType === "tv";
+  const detail = detailCache[w.key];
+  const streamUrl = buildStreamUrl(entry, w.provider, w.season, w.episode);
+  const providerBtns = STREAM_PROVIDERS.map((p, i) =>
+    `<button type="button" class="seg ${i === w.provider ? "is-active" : ""}" data-action="set-provider" data-index="${i}">${p.name}</button>`
+  ).join("");
+
+  const seasons = detail && isTv ? detail.number_of_seasons : (entry.totalSeasons || 1);
+  const seasonOptions = isTv ? Array.from({ length: Math.max(1, seasons) }).map((_, i) =>
+    `<option value="${i + 1}" ${w.season === i + 1 ? "selected" : ""}>Season ${i + 1}</option>`).join("") : "";
+
+  const season = seasonCache[`${w.key}-${w.season}`];
+  const episodeList = isTv ? renderEpisodeList(season, w) : "";
+
+  const recs = (detail && detail.recommendations && detail.recommendations.results || [])
+    .map((r) => normalizeMedia(r, r.media_type || media.mediaType)).filter(Boolean).filter((m) => m.key !== w.key).slice(0, 12);
+
+  const heading = isTv ? `S${w.season} · E${w.episode}${currentEpisodeName(season, w.episode) ? ` — ${currentEpisodeName(season, w.episode)}` : ""}` : (media.year ? `${media.year}` : "");
+
+  return `<div class="watch">
+    <div class="watch__topbar">
+      <button type="button" class="watch__back" data-action="close-watch">‹ Back</button>
+      <div class="watch__heading"><span class="watch__title">${escapeHtml(media.title)}</span><span class="watch__sub">${escapeHtml(heading)}</span></div>
+      <div class="watch__top-actions">
+        <button type="button" class="icon-btn" data-action="toggle-fullscreen" title="Fullscreen" aria-label="Fullscreen">⛶</button>
+        <button type="button" class="icon-btn" data-action="open-detail" data-key="${w.key}" title="Details" aria-label="Details">ⓘ</button>
+      </div>
+    </div>
+    <div class="watch__stage">
+      <div class="watch__player" id="watchPlayer">
+        ${streamUrl
+          ? `<iframe id="streamFrame" src="${streamUrl}" title="Player" allow="autoplay; encrypted-media; fullscreen; picture-in-picture" allowfullscreen referrerpolicy="origin"></iframe><div class="watch__loading" id="watchLoading"><div class="spinner"></div><span>Loading ${escapeHtml(STREAM_PROVIDERS[w.provider].name)}…</span></div>`
+          : `<div class="watch__loading">Preparing stream…</div>`}
+      </div>
+      <div class="watch__controls">
+        <div class="watch__providers"><span class="watch__label">Source</span><div class="seg-group">${providerBtns}</div></div>
+        <div class="watch__provider-hint">If a source won't play, switch to another. Auto-fallback runs after 30s.</div>
+      </div>
+    </div>
+    ${isTv ? `<div class="watch__episodes">
+      <div class="watch__episodes-head">
+        <select id="seasonSelect" class="select">${seasonOptions}</select>
+        <div class="watch__ep-nav">
+          <button type="button" class="btn btn--ghost btn--sm" data-action="prev-episode">‹ Prev</button>
+          <button type="button" class="btn btn--ghost btn--sm" data-action="next-episode">Next ›</button>
+        </div>
+      </div>
+      ${episodeList}
+    </div>` : `<div class="watch__movie-actions">
+      <button type="button" class="btn ${entry.watched ? "btn--ghost" : "btn--play"}" data-action="mark-watched">${entry.watched ? "✓ Watched" : "Mark as watched"}</button>
+      <button type="button" class="btn btn--icon" data-action="toggle-list" data-key="${w.key}">${entry ? "✓ In list" : "＋ My List"}</button>
+    </div>`}
+    ${recs.length ? `<div class="watch__recs"><h2 class="row__title">More like this</h2><div class="grid grid--compact">${recs.map(renderCard).join("")}</div></div>` : ""}
+  </div>`;
+}
+
+function currentEpisodeName(season, episode) {
+  if (!season || !season.episodes) return "";
+  const ep = season.episodes.find((e) => e.episode_number === episode);
+  return ep ? ep.name : "";
+}
+
+function renderEpisodeList(season, w) {
+  if (!season || !season.episodes) return `<div class="ep-loading">Loading episodes…</div>`;
+  return `<div class="ep-list">${season.episodes.map((ep) => {
+    const active = ep.episode_number === w.episode ? "is-active" : "";
+    const still = ep.still_path ? img(ep.still_path, "w300") : "";
+    return `<button type="button" class="ep ${active}" data-action="select-episode" data-episode="${ep.episode_number}">
+      <div class="ep__thumb">${still ? `<img loading="lazy" src="${still}" alt="">` : `<div class="ep__noimg">${ep.episode_number}</div>`}<span class="ep__num">E${ep.episode_number}</span></div>
+      <div class="ep__info"><div class="ep__name">${escapeHtml(ep.name || `Episode ${ep.episode_number}`)}</div>
+      <div class="ep__meta">${ep.runtime ? formatRuntime(ep.runtime) : ""}${ep.air_date ? ` · ${ep.air_date}` : ""}</div>
+      ${ep.overview ? `<div class="ep__overview">${escapeHtml(ep.overview.slice(0, 130))}${ep.overview.length > 130 ? "…" : ""}</div>` : ""}</div>
+    </button>`;
+  }).join("")}</div>`;
+}
+
+/* watch actions */
+function setProvider(index) {
+  if (!uiState.watch) return;
+  uiState.watch.provider = clamp(index, 0, STREAM_PROVIDERS.length - 1);
+  uiState.watch.streamLoaded = false;
+  renderApp();
+}
+function switchEpisode(episode) {
+  const w = uiState.watch; if (!w) return;
+  w.episode = Math.max(1, episode);
+  w.streamLoaded = false;
+  const entry = getEntry(w.key);
+  if (entry) { entry.season = w.season; entry.episode = w.episode; entry.lastWatched = Date.now(); pushSession(entry); saveData(); }
+  renderApp();
+}
+function switchSeason(season) {
+  const w = uiState.watch; if (!w) return;
+  w.season = Math.max(1, season); w.episode = 1; w.streamLoaded = false;
+  const entry = getEntry(w.key);
+  if (entry) { entry.season = w.season; entry.episode = 1; saveData(); }
+  loadWatchSeason(w.key, w.season);
+  renderApp();
+}
+function nextEpisode() {
+  const w = uiState.watch; if (!w) return;
+  const season = seasonCache[`${w.key}-${w.season}`];
+  const max = season && season.episodes ? season.episodes.length : Infinity;
+  if (w.episode < max) { switchEpisode(w.episode + 1); }
+  else { switchSeason(w.season + 1); }
+}
+function prevEpisode() {
+  const w = uiState.watch; if (!w) return;
+  if (w.episode > 1) switchEpisode(w.episode - 1);
+  else if (w.season > 1) switchSeason(w.season - 1);
+}
+function markMovieWatched() {
+  const w = uiState.watch; if (!w) return;
+  const entry = getEntry(w.key); if (!entry) return;
+  entry.watched = !entry.watched;
+  if (entry.watched) { entry.status = "completed"; entry.completedAt = Date.now(); pushSession(entry); }
+  saveData(); renderApp();
+  showToast(entry.watched ? "Marked as watched." : "Marked as unwatched.", "success");
+}
+function pushSession(entry) {
+  const today = Date.now();
+  entry.sessionLog = entry.sessionLog || [];
+  entry.sessionLog.push(today);
+  if (entry.sessionLog.length > 500) entry.sessionLog = entry.sessionLog.slice(-500);
+}
+
+/* fullscreen helpers */
+function isFullscreen() { return Boolean(document.fullscreenElement); }
+function toggleFullscreen() {
+  const el = document.getElementById("watchPlayer");
+  if (!el) return;
+  if (isFullscreen()) { document.exitFullscreen && document.exitFullscreen().catch(() => {}); }
+  else { el.requestFullscreen && el.requestFullscreen().catch(() => {}); }
+}
+function exitFullscreenSafe() { if (isFullscreen() && document.exitFullscreen) document.exitFullscreen().catch(() => {}); }
+
+/* --------------------------------------------------------------- stats */
+function renderStats() {
+  const entries = getEntries();
+  if (!entries.length) return `<div class="catalog"><div class="page-hero"><h1>Your Stats</h1></div><div class="state-msg"><h2>No data yet</h2><p>Track some titles to see your stats.</p></div></div>`;
+  const byStatus = {};
+  STATUS_OPTIONS.forEach((s) => byStatus[s] = 0);
+  let movies = 0, series = 0, rated = 0, ratingSum = 0, episodesWatched = 0;
+  const genreCount = {};
+  const dayMap = {};
+  entries.forEach((e) => {
+    if (byStatus[e.status] !== undefined) byStatus[e.status]++;
+    if (e.mediaType === "tv") series++; else movies++;
+    if (e.rating) { rated++; ratingSum += e.rating; }
+    if (e.mediaType === "tv") episodesWatched += Math.max(0, (e.season - 1) * 10 + (e.episode - 1));
+    e.genreIds.forEach((g) => { const n = genreName(g); if (n) genreCount[n] = (genreCount[n] || 0) + 1; });
+    (e.sessionLog || []).forEach((ts) => { const d = new Date(ts).toISOString().slice(0, 10); dayMap[d] = (dayMap[d] || 0) + 1; });
+  });
+  const completed = byStatus.completed || 0;
+  const avgRating = rated ? (ratingSum / rated).toFixed(1) : "—";
+  const topGenres = Object.entries(genreCount).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  const maxGenre = topGenres.length ? topGenres[0][1] : 1;
+
+  const statCards = [
+    ["Total titles", entries.length], ["Movies", movies], ["Series", series],
+    ["Completed", completed], ["Avg rating", avgRating], ["Episodes watched", episodesWatched],
+  ];
+
+  return `<div class="catalog stats">
+    <div class="page-hero"><h1>Your Stats</h1><p>Built entirely from your local library.</p></div>
+    <div class="stat-grid">${statCards.map(([l, v]) => `<div class="stat-card"><div class="stat-card__value">${v}</div><div class="stat-card__label">${l}</div></div>`).join("")}</div>
+    <div class="stats__cols">
+      <div class="stats__panel"><h2 class="row__title">Status breakdown</h2>${renderDonut(byStatus, entries.length)}</div>
+      <div class="stats__panel"><h2 class="row__title">Top genres</h2><div class="bars">${topGenres.map(([g, c]) => `<div class="bar"><span class="bar__label">${escapeHtml(g)}</span><span class="bar__track"><span class="bar__fill" style="width:${Math.round((c / maxGenre) * 100)}%"></span></span><span class="bar__count">${c}</span></div>`).join("") || "<p>No genres yet.</p>"}</div></div>
+    </div>
+    <div class="stats__panel"><h2 class="row__title">Watch activity</h2>${renderHeatmap(dayMap)}</div>
+  </div>`;
+}
+
+const DONUT_COLORS = { watching: "#e50914", completed: "#22c55e", watchlist: "#3b82f6", paused: "#f59e0b", dropped: "#6b7280" };
+function renderDonut(byStatus, total) {
+  if (!total) return "<p>No data.</p>";
+  let offset = 0;
+  const r = 70, c = 2 * Math.PI * r;
+  const segs = STATUS_OPTIONS.filter((s) => byStatus[s]).map((s) => {
+    const frac = byStatus[s] / total;
+    const len = frac * c;
+    const seg = `<circle r="${r}" cx="90" cy="90" fill="none" stroke="${DONUT_COLORS[s]}" stroke-width="22" stroke-dasharray="${len} ${c - len}" stroke-dashoffset="${-offset}" transform="rotate(-90 90 90)"></circle>`;
+    offset += len;
+    return seg;
+  }).join("");
+  const legend = STATUS_OPTIONS.filter((s) => byStatus[s]).map((s) => `<div class="legend"><span class="legend__dot" style="background:${DONUT_COLORS[s]}"></span>${STATUS_LABELS[s]} <b>${byStatus[s]}</b></div>`).join("");
+  return `<div class="donut-wrap"><svg viewBox="0 0 180 180" class="donut">${segs}<text x="90" y="84" class="donut__num">${total}</text><text x="90" y="104" class="donut__cap">titles</text></svg><div class="legends">${legend}</div></div>`;
+}
+
+function renderHeatmap(dayMap) {
+  const weeks = 17, cols = [];
+  const today = new Date();
+  const start = new Date(today); start.setDate(today.getDate() - weeks * 7 + 1);
+  let max = 1;
+  Object.values(dayMap).forEach((v) => { if (v > max) max = v; });
+  for (let w = 0; w < weeks; w++) {
+    const cells = [];
+    for (let d = 0; d < 7; d++) {
+      const date = new Date(start); date.setDate(start.getDate() + w * 7 + d);
+      if (date > today) { cells.push(`<span class="hm-cell hm-cell--empty"></span>`); continue; }
+      const key = date.toISOString().slice(0, 10);
+      const count = dayMap[key] || 0;
+      const level = count === 0 ? 0 : count >= max * 0.75 ? 4 : count >= max * 0.5 ? 3 : count >= max * 0.25 ? 2 : 1;
+      cells.push(`<span class="hm-cell hm-cell--${level}" title="${key}: ${count}"></span>`);
+    }
+    cols.push(`<div class="hm-col">${cells.join("")}</div>`);
+  }
+  return `<div class="heatmap">${cols.join("")}</div><div class="heatmap__legend">Less <span class="hm-cell hm-cell--0"></span><span class="hm-cell hm-cell--1"></span><span class="hm-cell hm-cell--2"></span><span class="hm-cell hm-cell--3"></span><span class="hm-cell hm-cell--4"></span> More</div>`;
+}
+
+/* --------------------------------------------------------------- actions */
+function toggleList(key) {
+  const media = resolveMedia(key);
+  if (!media) return;
+  const entry = getEntry(key);
+  if (entry) {
+    delete userData[key];
+    saveData();
+    showToast(`Removed “${media.title}” from your list.`, "info");
+  } else {
+    ensureEntry(media);
+    showToast(`Added “${media.title}” to your list.`, "success");
+  }
+  renderApp();
+}
+function setStatus(key, status) {
+  const media = resolveMedia(key);
+  if (!media) return;
+  const entry = getEntry(key) || ensureEntry(media);
+  entry.status = STATUS_OPTIONS.includes(status) ? status : entry.status;
+  if (status === "completed") { entry.completedAt = Date.now(); if (entry.mediaType === "movie") entry.watched = true; }
+  entry.lastWatched = entry.lastWatched || Date.now();
+  saveData(); renderApp();
+}
+function setRating(key, rating) {
+  const media = resolveMedia(key);
+  if (!media) return;
+  const entry = getEntry(key) || ensureEntry(media);
+  entry.rating = clamp(rating, 0, 10);
+  saveData(); renderApp();
+}
+function removeFromLibrary(key) {
+  const entry = getEntry(key);
+  if (!entry) return;
+  delete userData[key];
+  saveData();
+  showToast("Removed from your list.", "info");
+  renderApp();
+}
+
+/* --------------------------------------------------------------- import/export */
 function exportData() {
-  const payload = buildBackupPayload();
-
-  if (!payload) {
-    showToast("Your library is empty, nothing to export.", "info");
-    return;
-  }
-
-  const json   = JSON.stringify(payload, null, 2);
-  const blob   = new Blob([json], { type: "application/json" });
-  const url    = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href     = url;
-  anchor.download = "anime-library-backup.json";
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
+  const payload = { app: APP_NAME, schema: 1, exportedAt: Date.now(), library: userData };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `cinevault-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
   URL.revokeObjectURL(url);
-
-  showToast(`Library exported — ${payload.totalEntries} ${payload.totalEntries === 1 ? "title" : "titles"} saved.`, "success");
+  showToast("Library exported.", "success");
 }
-
-/**
- * Validate that a parsed object looks like an AniVault backup.
- * Accepts both the new versioned format (schemaVersion key present)
- * and the legacy raw-userData format (numeric string keys) so old
- * backups continue to work.
- */
-function isValidBackup(parsed) {
-  if (!parsed || typeof parsed !== "object") return false;
-  // New versioned format
-  if (parsed.schemaVersion === BACKUP_SCHEMA_VERSION && parsed.library && typeof parsed.library === "object") return true;
-  // Legacy format: flat object whose values are anime entries
-  const values = Object.values(parsed).filter(v => v !== null && typeof v === "object");
-  if (values.some(v => Number.isFinite(Number(v.id)) && v.title)) return true;
-  return false;
-}
-
 function importData(event) {
   const file = event.target.files && event.target.files[0];
   if (!file) return;
-
   const reader = new FileReader();
   reader.onload = () => {
-    try {
-      const parsed = JSON.parse(String(reader.result || "{}"));
-
-      if (!isValidBackup(parsed)) {
-        showToast("Invalid or corrupted backup file. Please use a valid export.", "error");
-        return;
-      }
-
-      let importedCount = 0;
-      const categoriesPopulated = new Set();
-
-      if (parsed.schemaVersion === BACKUP_SCHEMA_VERSION && parsed.library) {
-        // ── New versioned format ──────────────────────────────────
-        // Top-level ratings map for cross-referencing.
-        const ratingsMap = (parsed.ratings && typeof parsed.ratings === "object") ? parsed.ratings : {};
-
-        Object.entries(parsed.library).forEach(([status, entries]) => {
-          if (!Array.isArray(entries)) return;
-          entries.forEach(raw => {
-            // Recover rating from the top-level map if the entry's own
-            // rating field is missing or zero.
-            const ratingFromMap = Number(ratingsMap[String(raw.id)]) || 0;
-            const mergedRaw = Object.assign({}, raw, {
-              rating: (Number(raw.rating) > 0) ? Number(raw.rating) : ratingFromMap
-            });
-
-            const entry = normalizeEntry(mergedRaw);
-            if (!entry) return;
-
-            // Preserve status from the bucket key if the entry's own
-            // status field is absent or invalid.
-            if (!STATUS_OPTIONS.includes(entry.status) && STATUS_OPTIONS.includes(status)) {
-              entry.status = status;
-            }
-
-            userData[String(entry.id)] = entry;
-            importedCount++;
-            categoriesPopulated.add(entry.status);
-          });
-        });
-      } else {
-        // ── Legacy format: flat userData object ───────────────────
-        const normalized = normalizeLibrary(parsed);
-        Object.values(normalized).forEach(entry => {
-          if (!isAnimeEntry(entry)) return;
-          userData[String(entry.id)] = entry;
-          importedCount++;
-          categoriesPopulated.add(entry.status);
-        });
-      }
-
-      if (importedCount === 0) {
-        showToast("The backup file contained no valid anime entries.", "error");
-        return;
-      }
-
-      saveData();
-      renderApp();
-
-      showImportSummary(importedCount, categoriesPopulated);
-    } catch (error) {
-      showToast("Invalid or corrupted backup file. Please use a valid export.", "error");
-    } finally {
-      event.target.value = "";
-    }
+    const parsed = safeParse(reader.result);
+    const lib = parsed && (parsed.library || parsed);
+    if (!lib || typeof lib !== "object") { showToast("That file isn't a valid CineVault backup.", "error"); return; }
+    const incoming = normalizeLibrary(lib);
+    let added = 0;
+    Object.entries(incoming).forEach(([k, v]) => { if (!userData[k]) added++; userData[k] = v; });
+    saveData();
+    showToast(`Imported ${formatCount(Object.keys(incoming).length, "title")} (${added} new).`, "success");
+    renderApp();
   };
-
   reader.readAsText(file);
 }
 
-/* ══ STATS ENGINE ══════════════════════════════════════════════ */
-
-function computeStats() {
-  const entries = getAnimeEntries();
-  if (!entries.length) return null;
-
-  // Status counts
-  const statusCounts = {};
-  STATUS_OPTIONS.forEach(s => statusCounts[s] = 0);
-  entries.forEach(e => { statusCounts[e.status] = (statusCounts[e.status] || 0) + 1; });
-
-  // Episode & time stats
-  const totalEpisodes = entries.reduce((s, e) => s + (e.episodesWatched || 0), 0);
-  const avgEpDuration = 24; // minutes — standard anime episode
-  const totalMinutes = totalEpisodes * avgEpDuration;
-  const totalDays = (totalMinutes / 1440).toFixed(1);
-  const totalHours = Math.floor(totalMinutes / 60);
-
-  // Ratings
-  const rated = entries.filter(e => e.rating > 0);
-  const avgRating = rated.length ? (rated.reduce((s, e) => s + e.rating, 0) / rated.length).toFixed(1) : null;
-  const ratingDist = Array.from({length: 10}, (_, i) => ({
-    score: i + 1,
-    count: entries.filter(e => e.rating === i + 1).length
-  }));
-  const maxRatingCount = Math.max(...ratingDist.map(r => r.count), 1);
-
-  // Genre counts
-  const genreMap = {};
-  entries.forEach(e => (e.genres || []).forEach(g => { genreMap[g] = (genreMap[g] || 0) + 1; }));
-  const topGenres = Object.entries(genreMap)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 12)
-    .map(([genre, count]) => ({ genre, count }));
-  const maxGenreCount = topGenres.length ? topGenres[0].count : 1;
-
-  // Year distribution
-  const yearMap = {};
-  entries.forEach(e => { if (e.year > 0) yearMap[e.year] = (yearMap[e.year] || 0) + 1; });
-  const yearDist = Object.entries(yearMap)
-    .sort((a, b) => Number(a[0]) - Number(b[0]))
-    .map(([year, count]) => ({ year: Number(year), count }));
-  const maxYearCount = yearDist.length ? Math.max(...yearDist.map(y => y.count)) : 1;
-
-  // Activity heatmap — last 365 days from sessionLog
-  const now = Date.now();
-  const oneYear = 365 * 24 * 60 * 60 * 1000;
-  const dayMap = {};
-  entries.forEach(e => {
-    (e.sessionLog || []).forEach(ts => {
-      if (ts > 0 && now - ts < oneYear) {
-        const d = new Date(ts);
-        const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-        dayMap[key] = (dayMap[key] || 0) + 1;
-      }
-    });
-  });
-  const maxDayCount = Math.max(...Object.values(dayMap), 1);
-
-  // Streak calculation
-  let currentStreak = 0, longestStreak = 0, streak = 0;
-  const today = new Date(); today.setHours(0,0,0,0);
-  for (let i = 0; i < 365; i++) {
-    const d = new Date(today); d.setDate(d.getDate() - i);
-    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-    if (dayMap[key]) {
-      streak++;
-      if (i === 0 || i === 1) currentStreak = streak;
-      longestStreak = Math.max(longestStreak, streak);
-    } else {
-      if (i > 1) streak = 0;
-    }
-  }
-
-  // Completion rate
-  const started = entries.filter(e => ['watching','completed','dropped','paused'].includes(e.status)).length;
-  const completed = statusCounts['completed'] || 0;
-  const completionRate = started > 0 ? Math.round((completed / started) * 100) : 0;
-
-  // Top anime by episodes watched
-  const topByEpisodes = [...entries]
-    .filter(e => e.episodesWatched > 0)
-    .sort((a, b) => (b.episodesWatched || 0) - (a.episodesWatched || 0))
-    .slice(0, 5);
-
-  // Score vs AniList comparison
-  const bothScored = entries.filter(e => e.rating > 0 && e.averageScore > 0);
-  const avgAniList = bothScored.length ? (bothScored.reduce((s, e) => s + e.averageScore, 0) / bothScored.length / 10).toFixed(1) : null;
-  const scoreDiff = (avgRating && avgAniList) ? (parseFloat(avgRating) - parseFloat(avgAniList)).toFixed(1) : null;
-
-  // Most active month this year
-  const thisYear = new Date().getFullYear();
-  const monthMap = {};
-  entries.forEach(e => {
-    (e.sessionLog || []).forEach(ts => {
-      if (ts > 0) {
-        const d = new Date(ts);
-        if (d.getFullYear() === thisYear) {
-          const key = d.getMonth();
-          monthMap[key] = (monthMap[key] || 0) + 1;
-        }
-      }
-    });
-  });
-  const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const mostActiveMonth = Object.keys(monthMap).length
-    ? monthNames[Number(Object.entries(monthMap).sort((a,b) => b[1]-a[1])[0][0])]
-    : null;
-
-  // Episodes this year
-  const episodesThisYear = Object.entries(dayMap)
-    .filter(([k]) => k.startsWith(String(thisYear)))
-    .reduce((s, [, v]) => s + v, 0);
-
-  return {
-    total: entries.length, statusCounts, totalEpisodes, totalDays, totalHours,
-    avgRating, ratingDist, maxRatingCount, topGenres, maxGenreCount,
-    yearDist, maxYearCount, dayMap, maxDayCount,
-    currentStreak, longestStreak, completionRate,
-    topByEpisodes, avgAniList, scoreDiff, bothScored: bothScored.length,
-    mostActiveMonth, episodesThisYear, rated: rated.length
-  };
+/* --------------------------------------------------------------- toast */
+function showToast(message, type = "info") {
+  const el = document.createElement("div");
+  el.className = `toast toast--${type}`;
+  el.innerHTML = `<div class="toast__title">${escapeHtml(TOAST_TITLES[type] || "Info")}</div><div class="toast__msg">${escapeHtml(message)}</div>`;
+  toastZone.appendChild(el);
+  requestAnimationFrame(() => el.classList.add("is-in"));
+  setTimeout(() => { el.classList.remove("is-in"); setTimeout(() => el.remove(), 300); }, 3200);
 }
 
-function renderHeatmap(dayMap, maxDayCount) {
-  const weeks = [];
-  const today = new Date(); today.setHours(0,0,0,0);
-  // Start from 52 weeks ago, aligned to Sunday
-  const start = new Date(today);
-  start.setDate(start.getDate() - 364);
-  const dayOfWeek = start.getDay();
-  start.setDate(start.getDate() - dayOfWeek);
-
-  const monthLabels = [];
-  let lastMonth = -1;
-  let weekIndex = 0;
-
-  const d = new Date(start);
-  while (d <= today) {
-    const week = [];
-    for (let dow = 0; dow < 7; dow++) {
-      const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-      const count = dayMap[key] || 0;
-      const isFuture = d > today;
-      const intensity = isFuture ? 0 : count === 0 ? 0 : Math.ceil((count / maxDayCount) * 4);
-      week.push({ key, count, intensity, isFuture, month: d.getMonth(), date: d.getDate() });
-      if (d.getMonth() !== lastMonth && dow === 0) {
-        monthLabels.push({ index: weekIndex, label: ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()] });
-        lastMonth = d.getMonth();
-      }
-      d.setDate(d.getDate() + 1);
-    }
-    weeks.push(week);
-    weekIndex++;
-  }
-
-  const totalSessions = Object.values(dayMap).reduce((s, v) => s + v, 0);
-  const activeDays = Object.keys(dayMap).length;
-
-  const monthRow = `<div class="heatmap-months">${monthLabels.map(m => `<span style="grid-column:${m.index + 1}">${m.label}</span>`).join('')}</div>`;
-  const dayLabels = `<div class="heatmap-days"><span>Mon</span><span>Wed</span><span>Fri</span></div>`;
-  const grid = `<div class="heatmap-grid">${weeks.map(week =>
-    `<div class="heatmap-week">${week.map(cell =>
-      `<div class="heatmap-cell heatmap-cell--${cell.intensity}${cell.isFuture ? ' heatmap-cell--future' : ''}" title="${cell.isFuture ? '' : cell.count > 0 ? cell.count + ' session' + (cell.count > 1 ? 's' : '') + ' on ' + cell.key : 'No activity on ' + cell.key}"></div>`
-    ).join('')}</div>`
-  ).join('')}</div>`;
-
-  return `<div class="heatmap-wrap">
-    ${monthRow}
-    <div class="heatmap-body">${dayLabels}${grid}</div>
-    <div class="heatmap-legend">
-      <span class="muted">Less</span>
-      <div class="heatmap-cell heatmap-cell--0"></div>
-      <div class="heatmap-cell heatmap-cell--1"></div>
-      <div class="heatmap-cell heatmap-cell--2"></div>
-      <div class="heatmap-cell heatmap-cell--3"></div>
-      <div class="heatmap-cell heatmap-cell--4"></div>
-      <span class="muted">More</span>
-    </div>
-    <div class="heatmap-summary muted">${totalSessions} sessions across ${activeDays} active days in the last year</div>
-  </div>`;
-}
-
-function renderDonutChart(statusCounts, total) {
-  const STATUS_COLORS = {
-    watching: '#3b9eff', completed: '#22c55e', queued: '#f59e0b',
-    'plan-to-watch': '#a78bfa', dropped: '#ef4444', paused: '#fbbf24', untracked: '#50506a'
-  };
-  const r = 54, cx = 64, cy = 64, circumference = 2 * Math.PI * r;
-  let offset = 0;
-  const segments = STATUS_OPTIONS
-    .filter(s => statusCounts[s] > 0)
-    .map(s => {
-      const pct = statusCounts[s] / total;
-      const dash = pct * circumference;
-      const seg = { status: s, count: statusCounts[s], pct: Math.round(pct * 100), dash, offset, color: STATUS_COLORS[s] };
-      offset += dash;
-      return seg;
-    });
-
-  const arcs = segments.map(seg =>
-    `<circle class="donut-seg" cx="${cx}" cy="${cy}" r="${r}"
-      fill="none" stroke="${seg.color}" stroke-width="18"
-      stroke-dasharray="${seg.dash} ${circumference - seg.dash}"
-      stroke-dashoffset="${circumference - seg.offset}"
-      transform="rotate(-90 ${cx} ${cy})"
-      style="transition: stroke-dasharray 0.8s ease">
-      <title>${STATUS_LABELS[seg.status]}: ${seg.count} (${seg.pct}%)</title>
-    </circle>`
-  ).join('');
-
-  const legend = segments.map(seg =>
-    `<div class="donut-legend-item">
-      <span class="donut-legend-dot" style="background:${seg.color}"></span>
-      <span class="donut-legend-label">${STATUS_LABELS[seg.status]}</span>
-      <span class="donut-legend-count">${seg.count}</span>
-    </div>`
-  ).join('');
-
-  return `<div class="donut-wrap">
-    <svg class="donut-svg" viewBox="0 0 128 128">
-      <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="18"/>
-      ${arcs}
-      <text x="${cx}" y="${cy - 6}" text-anchor="middle" class="donut-center-num">${total}</text>
-      <text x="${cx}" y="${cy + 12}" text-anchor="middle" class="donut-center-label">Total</text>
-    </svg>
-    <div class="donut-legend">${legend}</div>
-  </div>`;
-}
-
-function renderStats() {
-  const s = computeStats();
-  if (!s) {
-    return `<div class="page page--stats">
-      <div class="stats-empty">
-        <div class="stats-empty__icon">📊</div>
-        <div class="stats-empty__title">No data yet</div>
-        <p class="stats-empty__text">Add anime to your library and start watching to see your personal analytics here.</p>
-        <button type="button" class="action-button" data-action="tab" data-tab="browse">Browse Anime</button>
-      </div>
-    </div>`;
-  }
-
-  const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-
-  // ── Hero stat cards ──────────────────────────────────────────
-  const heroCards = [
-    { value: s.total, label: 'Total Anime', icon: '🎌', color: 'var(--accent-bright)' },
-    { value: s.totalEpisodes.toLocaleString(), label: 'Episodes Watched', icon: '▶', color: '#3b9eff' },
-    { value: s.totalHours.toLocaleString() + 'h', label: 'Time Watched', icon: '⏱', color: '#22c55e' },
-    { value: s.totalDays + 'd', label: 'Days of Anime', icon: '📅', color: '#f59e0b' },
-    { value: s.avgRating ? '★ ' + s.avgRating : '—', label: 'Avg Your Rating', icon: '⭐', color: '#fbbf24' },
-    { value: s.completionRate + '%', label: 'Completion Rate', icon: '✓', color: '#a78bfa' },
-  ].map(c => `<div class="stat-hero-card" style="--card-color:${c.color}">
-    <div class="stat-hero-card__icon">${c.icon}</div>
-    <div class="stat-hero-card__value" style="color:${c.color}">${escapeHtml(String(c.value))}</div>
-    <div class="stat-hero-card__label">${escapeHtml(c.label)}</div>
-  </div>`).join('');
-
-  // ── Rating distribution bar chart ────────────────────────────
-  const ratingBars = s.ratingDist.map(r => {
-    const h = s.maxRatingCount > 0 ? Math.round((r.count / s.maxRatingCount) * 100) : 0;
-    const isAvg = s.avgRating && Math.round(parseFloat(s.avgRating)) === r.score;
-    return `<div class="rating-bar-col">
-      <div class="rating-bar-count">${r.count > 0 ? r.count : ''}</div>
-      <div class="rating-bar-track">
-        <div class="rating-bar-fill${isAvg ? ' rating-bar-fill--avg' : ''}" style="height:${h}%" title="${r.count} anime rated ${r.score}"></div>
-      </div>
-      <div class="rating-bar-label">${r.score}</div>
-    </div>`;
-  }).join('');
-
-  // ── Genre horizontal bars ─────────────────────────────────────
-  const genreBars = s.topGenres.map((g, i) => {
-    const w = Math.round((g.count / s.maxGenreCount) * 100);
-    const hue = (i * 28) % 360;
-    return `<div class="genre-bar-row">
-      <div class="genre-bar-name">${escapeHtml(g.genre)}</div>
-      <div class="genre-bar-track">
-        <div class="genre-bar-fill" style="width:${w}%;background:hsl(${hue},65%,60%)" title="${g.count} anime"></div>
-      </div>
-      <div class="genre-bar-count">${g.count}</div>
-    </div>`;
-  }).join('');
-
-  // ── Year distribution — vertical rows matching Top Genres style ──
-  const yearBars = s.yearDist.map(y => {
-    const w = Math.round((y.count / s.maxYearCount) * 100);
-    return `<div class="genre-bar-row">
-      <div class="genre-bar-name">${y.year}</div>
-      <div class="genre-bar-track">
-        <div class="genre-bar-fill" style="width:${w}%;background:var(--accent)" title="${y.count} anime"></div>
-      </div>
-      <div class="genre-bar-count">${y.count}</div>
-    </div>`;
-  }).join('');
-
-  // ── Top anime by episodes ─────────────────────────────────────
-  const topEpCards = s.topByEpisodes.map(e => {
-    const pct = e.episodes > 0 ? Math.round((e.episodesWatched / e.episodes) * 100) : 100;
-    return `<button type="button" class="top-ep-card" data-action="open-watch" data-id="${e.id}">
-      <div class="top-ep-card__cover">${e.cover ? `<img src="${escapeHtml(e.cover)}" alt="">` : ''}</div>
-      <div class="top-ep-card__info">
-        <div class="top-ep-card__title">${escapeHtml(getDisplayTitle(e))}</div>
-        <div class="top-ep-card__eps">${e.episodesWatched} / ${e.episodes || '?'} episodes</div>
-        <div class="top-ep-card__bar"><div class="top-ep-card__fill" style="width:${pct}%"></div></div>
-      </div>
-      <div class="top-ep-card__pct">${pct}%</div>
-    </button>`;
-  }).join('');
-
-  // ── Critic card ───────────────────────────────────────────────
-  let criticHtml = '';
-  if (s.scoreDiff !== null && s.bothScored >= 3) {
-    const diff = parseFloat(s.scoreDiff);
-    const label = diff > 0.5 ? 'Generous Rater 😊' : diff < -0.5 ? 'Harsh Critic 🧐' : 'Aligned with Community 🎯';
-    const desc = diff > 0.5
-      ? `You rate anime ${s.scoreDiff} points higher than the AniList community average.`
-      : diff < -0.5
-      ? `You rate anime ${Math.abs(diff).toFixed(1)} points lower than the AniList community average.`
-      : `Your ratings closely match the AniList community consensus.`;
-    criticHtml = `<div class="critic-card">
-      <div class="critic-card__label">${label}</div>
-      <div class="critic-card__row">
-        <div class="critic-card__score"><span class="critic-card__num">${s.avgRating}</span><span class="muted">Your avg</span></div>
-        <div class="critic-card__vs">vs</div>
-        <div class="critic-card__score"><span class="critic-card__num">${s.avgAniList}</span><span class="muted">AniList avg</span></div>
-      </div>
-      <div class="muted" style="font-size:0.8em;margin-top:8px">${escapeHtml(desc)}</div>
-      <div class="muted" style="font-size:0.72em;margin-top:4px">Based on ${s.bothScored} rated anime</div>
-    </div>`;
-  }
-
-  // ── Streak card ───────────────────────────────────────────────
-  const streakHtml = `<div class="streak-card">
-    <div class="streak-item">
-      <div class="streak-item__num" style="color:var(--accent-bright)">${s.currentStreak}</div>
-      <div class="streak-item__label">Current Streak</div>
-      <div class="muted" style="font-size:0.72em">days</div>
-    </div>
-    <div class="streak-divider"></div>
-    <div class="streak-item">
-      <div class="streak-item__num" style="color:#f59e0b">${s.longestStreak}</div>
-      <div class="streak-item__label">Longest Streak</div>
-      <div class="muted" style="font-size:0.72em">days</div>
-    </div>
-    ${s.mostActiveMonth ? `<div class="streak-divider"></div>
-    <div class="streak-item">
-      <div class="streak-item__num" style="color:#22c55e">${escapeHtml(s.mostActiveMonth)}</div>
-      <div class="streak-item__label">Most Active Month</div>
-      <div class="muted" style="font-size:0.72em">${new Date().getFullYear()}</div>
-    </div>` : ''}
-  </div>`;
-
-  return `<div class="page page--stats">
-
-    <div class="stats-header">
-      <div class="stats-header__title">Your Anime Stats</div>
-      <div class="stats-header__sub">A deep dive into your watching history and habits</div>
-    </div>
-
-    <!-- Hero number cards -->
-    <div class="stat-hero-grid">${heroCards}</div>
-
-    <!-- Row 1: Donut + Rating dist -->
-    <div class="stats-row stats-row--2col">
-      <div class="stats-card">
-        <div class="stats-card__title">Library Breakdown</div>
-        <div class="stats-card__sub">Status distribution across all ${s.total} titles</div>
-        ${renderDonutChart(s.statusCounts, s.total)}
-      </div>
-      <div class="stats-card">
-        <div class="stats-card__title">Your Rating Distribution</div>
-        <div class="stats-card__sub">${s.rated} rated anime · avg ${s.avgRating || '—'} / 10</div>
-        <div class="rating-bars">${ratingBars}</div>
-      </div>
-    </div>
-
-    <!-- Row 2: Genre bars -->
-    <div class="stats-card">
-      <div class="stats-card__title">Top Genres in Your Library</div>
-      <div class="stats-card__sub">Ranked by number of anime per genre</div>
-      <div class="genre-bars">${genreBars}</div>
-    </div>
-
-    <!-- Row 3: Activity heatmap -->
-    <div class="stats-card">
-      <div class="stats-card__title">Watch Activity — Last 12 Months</div>
-      <div class="stats-card__sub">Each cell is one day · darker = more sessions</div>
-      ${renderHeatmap(s.dayMap, s.maxDayCount)}
-    </div>
-
-    <!-- Row 4: Streak + Critic -->
-    <div class="stats-row stats-row--3col">
-      <div class="stats-card">
-        <div class="stats-card__title">Watching Streaks</div>
-        <div class="stats-card__sub">Consecutive days with watch sessions</div>
-        ${streakHtml}
-      </div>
-      ${criticHtml ? `<div class="stats-card">
-        <div class="stats-card__title">Critic Profile</div>
-        <div class="stats-card__sub">How your taste compares to AniList</div>
-        ${criticHtml}
-      </div>` : ''}
-    </div>
-
-    <!-- Row 5: Top anime by episodes -->
-    ${s.topByEpisodes.length ? `<div class="stats-card">
-      <div class="stats-card__title">Most Watched Anime</div>
-      <div class="stats-card__sub">By episodes watched</div>
-      <div class="top-ep-list">${topEpCards}</div>
-    </div>` : ''}
-
-    <!-- Row 6: Anime by Release Year — vertical rows, no horizontal overflow -->
-    <div class="stats-card">
-      <div class="stats-card__title">Anime by Release Year</div>
-      <div class="stats-card__sub">Which eras you watch most</div>
-      <div class="genre-bars">${yearBars}</div>
-    </div>
-
-  </div>`;
-}
+/* --------------------------------------------------------------- render */
 function renderCurrentPage() {
-  if (currentWatchId) return renderWatchView();
-  if (currentTab === "library") return renderLibrary();
-  if (currentTab === "browse") return renderBrowse();
-  if (currentTab === "search") return renderSearch();
-  if (currentTab === "stats") return renderStats();
-  return renderHome();
+  switch (uiState.tab) {
+    case "home": return renderCatalogPage("home", "Home");
+    case "movies": return renderCatalogPage("movies", "Movies", "Blockbusters, classics, and everything between.");
+    case "tv": return renderCatalogPage("tv", "TV Shows", "Bingeable series across every genre.");
+    case "animation": return renderCatalogPage("animation", "Animation", "Animated movies and series — for all ages.");
+    case "mylist": return renderMyList();
+    case "search": return renderSearch();
+    case "stats": return renderStats();
+    default: return renderCatalogPage("home", "Home");
+  }
 }
+
 function renderApp() {
-  app.innerHTML = `<div class="app-shell">${renderTopNav()}<main class="app-main"><div class="content-shell">${renderCurrentPage()}</div></main>${renderOverlay()}${renderMobileTabs()}</div>`;
+  const parts = [];
+  if (uiState.watch) {
+    parts.push(renderWatchView());
+  } else {
+    parts.push(renderTopNav());
+    parts.push(`<main class="main">${renderCurrentPage()}</main>`);
+    parts.push(renderMobileNav());
+  }
+  if (uiState.overlay) parts.push(renderOverlay());
+  app.innerHTML = parts.join("");
   afterRender();
 }
+
 function afterRender() {
-  document.querySelectorAll("[data-row-track]").forEach(track => { syncScrollButtons(track.id); track.addEventListener("scroll", () => syncScrollButtons(track.id), { passive: true }); });
-  if (!currentWatchId && currentTab === "home") initHeroCarousel();
-  if (uiState.navSearchOpen) { const input = document.getElementById("navSearchInput"); if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); } }
-  if (uiState.focusInputId) { const focusTarget = document.getElementById(uiState.focusInputId); if (focusTarget) { focusTarget.focus(); if (typeof focusTarget.setSelectionRange === "function") focusTarget.setSelectionRange(focusTarget.value.length, focusTarget.value.length); } uiState.focusInputId = ""; }
-  if (currentTab === "search" && !currentWatchId) { const pageInput = document.getElementById("searchPageInput"); if (pageInput && document.activeElement !== pageInput && uiState.search.query) pageInput.setSelectionRange(pageInput.value.length, pageInput.value.length); }
-  if (currentTab === "browse" && !uiState.browse.initialized && !uiState.browse.loading) loadBrowse("seasonal");
-  if (currentTab === "browse") {
-    const sentinel = document.getElementById("browseSentinel");
-    if (sentinel) {
-      // Disconnect any existing observer before attaching a new one
-      if (window._browseObserver) {
-        window._browseObserver.disconnect();
-        window._browseObserver = null;
-      }
-      window._browseObserver = new IntersectionObserver((entries) => {
-        if (entries[0].isIntersecting && !uiState.browse.loading) {
-          loadBrowse(uiState.browse.mode, uiState.browse.genre, uiState.browse.page + 1);
-        }
-      }, { threshold: 0.1 });
-      window._browseObserver.observe(sentinel);
+  document.body.classList.toggle("no-scroll", Boolean(uiState.overlay));
+  if (!uiState.watch && !uiState.overlay && document.getElementById("hero")) startHeroAuto();
+  else clearInterval(heroState.timer);
+
+  document.querySelectorAll("[data-row-track]").forEach((el) => syncScrollButtons(el.id));
+  if (uiState.watch) setupWatchPlayer();
+
+  // keep search input focused while typing
+  if (uiState.search.focus && uiState.tab === "search" && !uiState.watch && !uiState.overlay) {
+    const input = document.getElementById("navSearchInput");
+    if (input && document.activeElement !== input) {
+      input.focus();
+      const v = input.value; input.value = ""; input.value = v;
     }
   }
-  // Re-apply settings modal focus trap and scroll lock after any re-render while settings is open
-  if (uiState.overlay && uiState.overlay.type === "settings") {
-    document.body.style.overflow = "hidden";
-  }
-  if (currentWatchId) { const activeEpisode = document.querySelector(".ep-row.current"); if (activeEpisode) activeEpisode.scrollIntoView({ block: "nearest" }); renderRatingComponent(currentWatchId, "watchViewRatingContainer"); paintEpisodeList(currentWatchId); const currentEntry = getEntry(currentWatchId); if (currentEntry && franchiseCache[currentEntry.anilistId || currentEntry.id]) renderWatchOrder(currentEntry.anilistId || currentEntry.id, currentWatchOrderSort); setupWatchPlayer(); } else window.clearTimeout(streamFallbackTimer);
 }
+
+function syncScrollButtons(trackId) {
+  const vp = document.getElementById(trackId);
+  if (!vp) return;
+  const head = vp.parentElement && vp.parentElement.querySelector(".row__controls");
+  if (!head) return;
+  const prev = head.querySelector('[data-dir="prev"]');
+  const next = head.querySelector('[data-dir="next"]');
+  const maxScroll = vp.scrollWidth - vp.clientWidth - 4;
+  if (prev) prev.disabled = vp.scrollLeft <= 2;
+  if (next) next.disabled = vp.scrollLeft >= maxScroll;
+}
+function scrollRow(trackId, dir) {
+  const vp = document.getElementById(trackId);
+  if (!vp) return;
+  vp.scrollBy({ left: dir === "next" ? vp.clientWidth * 0.85 : -vp.clientWidth * 0.85, behavior: "smooth" });
+  setTimeout(() => syncScrollButtons(trackId), 350);
+}
+
 function setupWatchPlayer() {
-  window.clearTimeout(streamFallbackTimer);
-  const iframe = document.querySelector("[data-watch-iframe]");
-  if (!iframe) return;
-
-  uiState.watch.streamLoaded = false;
-
-  // Capture which provider we're testing so the timeout closure doesn't
-  // act on a stale index if the user manually switches before it fires.
-  const providerIndexAtStart = uiState.watch.currentProvider;
-  const providerName = (STREAM_PROVIDERS[providerIndexAtStart] || STREAM_PROVIDERS[0]).name;
-
-  // Known origins that can send us postMessage confirmation.
-  const knownOrigins = ["megaplay.buzz", "cinetaro.buzz", "vidplus.to"];
-
-  // ── Success signal: any postMessage that confirms the player is alive.
-  // MegaPlay fires { event:"time" }, { type:"watching-log" }, and
-  // { data: { channel:"megacloud" } }. VidPlus/Cinetaro may fire similar events.
-  const onTimeMessage = (e) => {
-    if (!currentWatchId) return;
-    if (!knownOrigins.some(o => e.origin.includes(o))) return;
-    const payload = typeof e.data === "string" ? safeParse(e.data) : e.data;
-    if (!payload || typeof payload !== "object") return;
-    const isAliveSignal =
-      payload.event === "time"          ||
-      payload.type  === "time"          ||
-      payload.type  === "watching-log"  ||
-      payload.channel === "megacloud";
-    if (!isAliveSignal) return;
-    // Stream confirmed working — cancel the hard timeout and clean up.
-    window.clearTimeout(streamFallbackTimer);
-    uiState.watch.streamLoaded = true;
-    window.removeEventListener("message", onTimeMessage);
+  const frame = document.getElementById("streamFrame");
+  const loading = document.getElementById("watchLoading");
+  if (!frame) return;
+  clearTimeout(providerTimer);
+  const onLoad = () => {
+    if (uiState.watch) uiState.watch.streamLoaded = true;
+    if (loading) loading.style.display = "none";
+    clearTimeout(providerTimer);
   };
-  window.addEventListener("message", onTimeMessage);
-
-  // ── Failure signal: 30-second hard timeout with no time postMessage.
-  // Auto-advance to the next provider rather than showing a dead-end screen.
-  streamFallbackTimer = window.setTimeout(() => {
-    window.removeEventListener("message", onTimeMessage);
-    if (!currentWatchId) return;
-    // Only act if the provider hasn't changed since we started.
-    if (uiState.watch.currentProvider !== providerIndexAtStart) return;
-    if (uiState.watch.streamLoaded) return;
-
-    const nextIndex = providerIndexAtStart + 1;
-    if (nextIndex < STREAM_PROVIDERS.length) {
-      // Try the next provider automatically.
-      uiState.watch.currentProvider = nextIndex;
-      uiState.watch.streamLoaded = false;
-      uiState.watch.forceFallback = false;
-      renderApp();
-      showToast(`${providerName} timed out — trying ${STREAM_PROVIDERS[nextIndex].name}…`, "info");
-    } else {
-      // All providers exhausted — show the fallback screen.
-      uiState.watch.forceFallback = true;
-      renderApp();
-      showToast("No working stream found. Try again later or switch providers manually.", "error");
+  frame.addEventListener("load", onLoad, { once: true });
+  // auto-fallback to next provider if nothing loads
+  providerTimer = setTimeout(() => {
+    if (uiState.watch && !uiState.watch.streamLoaded && uiState.watch.provider < STREAM_PROVIDERS.length - 1) {
+      showToast(`${STREAM_PROVIDERS[uiState.watch.provider].name} timed out — trying ${STREAM_PROVIDERS[uiState.watch.provider + 1].name}.`, "info");
+      setProvider(uiState.watch.provider + 1);
     }
   }, 30000);
 }
-function syncScrollButtons(trackId) {
-  const track = document.getElementById(trackId); if (!track) return;
-  const prevButton = document.querySelector(`[data-target="${trackId}"][data-dir="prev"]`), nextButton = document.querySelector(`[data-target="${trackId}"][data-dir="next"]`);
-  if (!prevButton || !nextButton) return;
-  const maxScroll = track.scrollWidth - track.clientWidth; const atStart = track.scrollLeft <= 4; const atEnd = maxScroll <= 4 || track.scrollLeft >= maxScroll - 4;
-  prevButton.disabled = atStart; nextButton.disabled = atEnd;
-}
-function scrollRow(trackId, direction) {
-  const track = document.getElementById(trackId); if (!track) return;
-  const amount = Math.max(track.clientWidth * 0.8, 220);
-  track.scrollBy({ left: direction === "next" ? amount : -amount, behavior: "smooth" });
+
+/* --------------------------------------------------------------- events */
+function switchTab(tab) {
+  if (!NAV_LABELS[tab]) return;
+  uiState.tab = tab;
+  uiState.search.focus = tab === "search";
+  window.scrollTo({ top: 0 });
+  renderApp();
+  if (["home", "movies", "tv", "animation"].includes(tab)) loadPage(tab);
 }
 
-/* EVENTS */
+function closeOverlay() { uiState.overlay = null; renderApp(); }
+
 function handleClick(event) {
-  const actionTarget = event.target.closest("[data-action]");
-  if (!actionTarget) {
-    if (uiState.inlineStatusPicker && !event.target.closest(".card-actions__picker-wrap")) { uiState.inlineStatusPicker = null; renderApp(); return; }
-    if (event.target.hasAttribute("data-overlay-card") || event.target.closest("[data-overlay-card]")) return;
-    if (event.target.classList.contains("overlay")) { uiState.overlay = null; renderApp(); }
-    return;
-  }
-  const action = actionTarget.dataset.action;
-  if (action === "tab") { renderTab(actionTarget.dataset.tab); return; }
-  if (action === "toggle-menu") {
-    uiState.navMenuOpen = !uiState.navMenuOpen;
-    renderApp();
-    if (uiState.navMenuOpen) {
-      // Close dropdown when clicking anywhere outside it
-      const closeDropdown = (e) => {
-        if (!e.target.closest(".nav-more-dropdown") && !e.target.closest("[data-action='toggle-menu']")) {
-          uiState.navMenuOpen = false;
-          renderApp();
-          document.removeEventListener("click", closeDropdown);
-        }
-      };
-      setTimeout(() => document.addEventListener("click", closeDropdown), 0);
-    }
-    return;
-  }
-  if (action === "toggle-nav-search") { uiState.navSearchOpen = !uiState.navSearchOpen; if (uiState.navSearchOpen) currentTab = "search"; renderApp(); return; }
-  if (action === "export") { exportData(); return; }
-  if (action === "import") { const input = document.getElementById("importInput"); if (input) input.click(); return; }
-  if (action === "toggle-theme") { toggleTheme(); return; }
-  if (action === "row-scroll") { scrollRow(actionTarget.dataset.target, actionTarget.dataset.dir); return; }
-  if (action === "open-watch") { openWatchView(Number(actionTarget.dataset.id)); return; }
-  if (action === "open-detail") { openDetailOverlay(Number(actionTarget.dataset.id)); return; }
+  const trigger = event.target.closest("[data-action]");
+  if (!trigger) return;
+  const action = trigger.dataset.action;
+  const key = trigger.dataset.key;
+
+  // overlay backdrop click closes; clicks inside modal stop here
   if (action === "close-overlay") {
-    const wasSettings = uiState.overlay && uiState.overlay.type === "settings";
-    uiState.overlay = null;
-    renderApp();
-    if (wasSettings) settingsOnClose();
-    return;
+    if (event.target.closest("[data-stop]") && !event.target.matches(".modal__close") && !event.target.closest(".modal__close")) {
+      if (!event.target.matches(".overlay")) return;
+    }
+    closeOverlay(); return;
   }
-  if (action === "open-settings") { uiState.overlay = { type: "settings" }; renderApp(); settingsAfterRender(); return; }
-  if (action === "set-accent") {
-    uiState.accentColor = actionTarget.dataset.color;
-    document.documentElement.style.setProperty("--accent", uiState.accentColor);
-    document.documentElement.style.setProperty("--accent-bright", uiState.accentColor);
-    saveData(); renderApp(); settingsAfterRender(); flashSettingsSaved(); return;
+
+  switch (action) {
+    case "tab": switchTab(trigger.dataset.tab); break;
+    case "open-detail": event.stopPropagation(); openDetail(key); break;
+    case "open-watch": event.stopPropagation(); openWatch(key); break;
+    case "close-watch": closeWatch(); break;
+    case "toggle-list": event.stopPropagation(); toggleList(key); break;
+    case "set-status": setStatus(key, trigger.dataset.status); break;
+    case "set-rating": setRating(key, Number(trigger.dataset.rating)); break;
+    case "remove": removeFromLibrary(key); break;
+    case "open-settings": openSettings(); break;
+    case "save-settings": handleSaveSettings(); break;
+    case "export": exportData(); break;
+    case "retry-load": catalog[uiState.tab] && (catalog[uiState.tab].status = "idle"); loadPage(uiState.tab); break;
+    case "set-library-filter": uiState.library.filter = trigger.dataset.filter; renderApp(); break;
+    case "play-trailer": if (uiState.overlay) { uiState.overlay.trailer = true; renderApp(); } break;
+    case "stop-trailer": if (uiState.overlay) { uiState.overlay.trailer = false; renderApp(); } break;
+    case "set-provider": setProvider(Number(trigger.dataset.index)); break;
+    case "select-episode": switchEpisode(Number(trigger.dataset.episode)); break;
+    case "next-episode": nextEpisode(); break;
+    case "prev-episode": prevEpisode(); break;
+    case "mark-watched": markMovieWatched(); break;
+    case "toggle-fullscreen": toggleFullscreen(); break;
+    case "row-scroll": scrollRow(trigger.dataset.target, trigger.dataset.dir); break;
+    case "hero-prev": clearInterval(heroState.timer); goHero(heroState.current - 1); startHeroAuto(); break;
+    case "hero-next": clearInterval(heroState.timer); goHero(heroState.current + 1); startHeroAuto(); break;
+    case "hero-dot": clearInterval(heroState.timer); goHero(Number(trigger.dataset.index)); startHeroAuto(); break;
   }
-  if (action === "set-volume") { uiState.volume = parseFloat(actionTarget.value); saveData(); return; }
-  if (action === "toggle-compact") { uiState.compactMode = !uiState.compactMode; document.body.classList.toggle("compact-mode", uiState.compactMode); saveData(); renderApp(); return; }
-  if (action === "toggle-reduced-motion") { uiState.reducedMotion = !uiState.reducedMotion; document.body.classList.toggle("reduced-motion", uiState.reducedMotion); saveData(); renderApp(); return; }
-  if (action === "toggle-compact-view") {
-    uiState.compactView = actionTarget.checked;
-    document.body.classList.toggle("compact-view", uiState.compactView);
-    saveData(); flashSettingsSaved(); return;
-  }
-  if (action === "toggle-no-animations") {
-    uiState.disableAnimations = actionTarget.checked;
-    document.body.classList.toggle("no-animations", uiState.disableAnimations);
-    saveData(); flashSettingsSaved(); return;
-  }
-  if (action === "open-status-picker") { openStatusPicker(actionTarget.dataset.source, Number(actionTarget.dataset.id)); return; }
-  if (action === "open-add-modal") {
-    const source = actionTarget.dataset.source;
-    const id = Number(actionTarget.dataset.id);
-    const media = getAniListResultBySource(source, id);
-    if (media) { uiState.overlay = { type: "add-modal", source, id }; renderApp(); }
-    return;
-  }
-  if (action === "quick-watch-now") { const media = getAniListResultBySource(actionTarget.dataset.source, Number(actionTarget.dataset.id)); if (media) quickWatchNow(media); return; }
-  if (action === "quick-add-status") { event.stopPropagation(); const media = getAniListResultBySource(actionTarget.dataset.source, Number(actionTarget.dataset.id)); if (media) { addToLibrary(media, actionTarget.dataset.status); uiState.overlay = null; } return; }
-  if (action === "picker-status") { const media = getAniListResultBySource(actionTarget.dataset.source, Number(actionTarget.dataset.id)); if (media) addToLibrary(media, actionTarget.dataset.status); return; }
-  if (action === "set-library-filter") { uiState.library.filter = actionTarget.dataset.filter; renderApp(); return; }
-  if (action === "browse-mode") { loadBrowse(actionTarget.dataset.mode); return; }
-  if (action === "browse-genre") { loadBrowse("genre", actionTarget.dataset.genre); return; }
-  if (action === "watch-back") { closeWatchView(); return; }
-  if (action === "watch-prev") { if (currentWatchId) switchEpisode(currentWatchId, currentEpisode - 1); return; }
-  if (action === "watch-next") { if (currentWatchId) switchEpisode(currentWatchId, currentEpisode + 1); return; }
-  if (action === "watch-mark") { if (currentWatchId) markEpisodeWatched(currentWatchId, currentEpisode); return; }
-  if (action === "toggle-fullscreen") { toggleWatchFullscreen(); return; }
-  if (action === "switch-provider") { 
-    const nextProvider = (uiState.watch.currentProvider + 1) % STREAM_PROVIDERS.length; 
-    uiState.watch.currentProvider = nextProvider; 
-    uiState.watch.streamLoaded = false; 
-    uiState.watch.forceFallback = false;
-    renderApp(); 
-    showToast(`Switched to ${STREAM_PROVIDERS[nextProvider].name}`, "info");
-    return; 
-  }
-  if (action === "switch-language") { if (currentWatchId) switchLanguage(currentWatchId, actionTarget.dataset.lang); return; }
-  if (action === "set-episode") { if (currentWatchId) switchEpisode(currentWatchId, Number(actionTarget.dataset.ep)); return; }
-  if (action === "set-rating") { if (currentWatchId) setRating(currentWatchId, Number(actionTarget.dataset.rating)); return; }
-  if (action === "set-watch-order-sort") { const entry = getEntry(currentWatchId); if (entry) renderWatchOrder(entry.anilistId || entry.id, actionTarget.dataset.sort); return; }
-  if (action === "watch-order-card") { const entry = getEntry(currentWatchId); if (entry) { const relations = franchiseCache[entry.anilistId || entry.id] || []; const cardData = relations.find((item) => Number(item.id) === Number(actionTarget.dataset.id)); if (cardData) handleWatchOrderCardClick(cardData.id, cardData); } return; }
-  if (action === "save-completion-rating") { const overlayRating = document.getElementById("completionRatingContainer"); const score = Number((overlayRating && overlayRating.dataset.selectedRating) || 0); const targetId = Number(actionTarget.dataset.id); const entry = getEntry(targetId); if (entry && score > 0 && entry.rating === 0) { entry.rating = score; saveData(); showToast(`⭐ ${score}/10 - ${getRatingLabel(score)}`, "success"); } document.querySelector(".rating-overlay")?.remove(); finalizeCompletion(targetId); return; }
-  if (action === "skip-completion-rating") { document.querySelector(".rating-overlay")?.remove(); finalizeCompletion(Number(actionTarget.dataset.id)); return; }
-  if (action === "remove-from-library") { removeFromLibrary(Number(actionTarget.dataset.id)); return; }
-  if (action === "switch-episode-group") { const newGroupIndex = parseInt(actionTarget.dataset.groupIndex, 10); if (!isNaN(newGroupIndex) && currentWatchId) { currentEpisodeGroupIndex = newGroupIndex; uiState.watch.episodeGroupIndex = currentEpisodeGroupIndex; renderApp(); } return; }
 }
+
+function handleSaveSettings() {
+  const keyEl = document.getElementById("setKey");
+  const regionEl = document.getElementById("setRegion");
+  const autoEl = document.getElementById("setAutoNext");
+  const themeEl = document.getElementById("setTheme");
+  settings.tmdbKey = keyEl ? keyEl.value.trim() : settings.tmdbKey;
+  settings.region = regionEl ? regionEl.value : settings.region;
+  settings.autoNext = autoEl ? autoEl.checked : settings.autoNext;
+  settings.theme = themeEl && themeEl.checked ? "light" : "dark";
+  saveSettings();
+  TMDB_API_KEY = HARDCODED_TMDB_KEY || settings.tmdbKey || "";
+  document.documentElement.setAttribute("data-theme", settings.theme);
+  closeOverlay();
+  showToast("Settings saved.", "success");
+  if (hasKey()) {
+    // reset caches and reload current/home page
+    Object.keys(catalog).forEach((p) => { catalog[p].status = "idle"; catalog[p].rows = []; catalog[p].recRows = []; });
+    loadGenres();
+    loadPage(["home", "movies", "tv", "animation"].includes(uiState.tab) ? uiState.tab : "home");
+    if (!["home", "movies", "tv", "animation"].includes(uiState.tab)) renderApp();
+  }
+}
+
 function handleInput(event) {
-  // Settings: Color Intensity slider — live update, no re-render needed
-  if (event.target.dataset.action === "set-intensity") {
-    const val = parseInt(event.target.value, 10);
-    uiState.colorIntensity = val;
-    document.documentElement.style.setProperty("--accent-opacity", String(val / 100));
-    const display = document.getElementById("intensityDisplay");
-    if (display) display.textContent = val + "%";
-    saveData();
-    flashSettingsSaved();
-    return;
-  }
-  if (event.target.id === "librarySearchInput") {
-    // Change 5: Surgical DOM update — do NOT call renderApp() to avoid destroying the input
-    uiState.library.query = event.target.value;
-    // Do NOT set uiState.focusInputId — input is never destroyed, focus is never lost
-    const libraryGrid = document.querySelector(".library-grid");
-    if (libraryGrid) {
-      const entries = getFilteredLibraryEntries();
-      libraryGrid.innerHTML = entries.map((entry) => renderPosterCard(entry, { context: "grid", action: "open-watch" })).join("");
-    } else {
-      // Grid doesn't exist yet (empty state shown) — need a full re-render to switch from empty state to grid
-      renderApp();
-    }
-    return;
-  }
-  if (["searchPageInput", "navSearchInput", "mobileNavSearchInput"].includes(event.target.id)) {
-    uiState.search.query = event.target.value; currentTab = "search";
-    uiState.navSearchOpen = false; /* nav search is always visible now */
-    uiState.focusInputId = event.target.id;
-    scheduleAniListSearch(uiState.search.query);
-    /* FIX: Do NOT call renderApp() here — it destroys the input and loses focus.
-       scheduleAniListSearch → runAniListSearch → queueRender handles the results update.
-       We only need to sync library matches immediately (no API call needed). */
-    const libraryResults = document.querySelector(".search-layout .section");
-    if (libraryResults) {
-      /* partial re-render just for library matches row — no full re-render */
-      window.requestAnimationFrame(() => {
-        const matches = getSearchLibraryMatches();
-        const track = document.getElementById("searchLibraryRow");
-        if (track) {
-          track.innerHTML = matches.map((entry) => renderSearchCard({ id: entry.id, title: { romaji: entry.title, english: entry.titleEnglish }, coverImage: { large: entry.cover }, episodes: entry.episodes, averageScore: entry.averageScore, status: entry.status })).join("");
-          syncScrollButtons("searchLibraryRow");
-        }
-        /* keep focus */
-        const focusTarget = document.getElementById(uiState.focusInputId);
-        if (focusTarget && document.activeElement !== focusTarget) {
-          focusTarget.focus();
-          if (typeof focusTarget.setSelectionRange === "function") focusTarget.setSelectionRange(focusTarget.value.length, focusTarget.value.length);
-        }
-      });
-    }
+  const t = event.target;
+  if (t.id === "navSearchInput") {
+    uiState.search.focus = true;
+    if (uiState.tab !== "search") { uiState.tab = "search"; renderApp(); }
+    scheduleSearch(t.value);
+  } else if (t.id === "librarySearchInput") {
+    uiState.library.query = t.value;
+    const grid = document.querySelector(".mylist .grid") || document.querySelector(".mylist .state-msg");
+    // light re-render of just the list
+    renderApp();
   }
 }
+
 function handleChange(event) {
-  if (event.target.id === "librarySortSelect") { uiState.library.sort = event.target.value; renderApp(); return; }
-  if (event.target.id === "importInput") { importData(event); return; }
-  if (event.target.dataset.statusSelect) updateStatus(Number(event.target.dataset.statusSelect), event.target.value);
+  const t = event.target;
+  if (t.id === "librarySortSelect") { uiState.library.sort = t.value; renderApp(); }
+  else if (t.id === "seasonSelect") { switchSeason(Number(t.value)); }
+  else if (t.id === "importFile") { importData(event); }
 }
+
 function handleFocusOut(event) {
-  if (!event.target.dataset.notesField) return;
-  const entry = getEntry(Number(event.target.dataset.notesField)); if (!entry) return;
-  entry.notes = event.target.value.trim(); saveData(); showToast("Notes saved.", "success");
+  if (event.target.id === "notesField") {
+    const key = event.target.dataset.key;
+    const entry = getEntry(key);
+    if (entry) { entry.notes = event.target.value; saveData(); }
+  }
 }
+
 function handleKeydown(event) {
-  const tag = document.activeElement && document.activeElement.tagName ? document.activeElement.tagName.toLowerCase() : "";
-  const isTyping = tag === "input" || tag === "textarea" || tag === "select" || (document.activeElement && document.activeElement.isContentEditable);
   if (event.key === "Escape") {
-    if (uiState.overlay) {
-      const wasSettings = uiState.overlay.type === "settings";
-      uiState.overlay = null;
-      renderApp();
-      if (wasSettings) settingsOnClose();
-      return;
-    }
-    if (currentWatchId) closeWatchView();
+    if (uiState.overlay) { closeOverlay(); return; }
+    if (uiState.watch) { closeWatch(); return; }
+  }
+  // card activation via keyboard
+  if ((event.key === "Enter" || event.key === " ") && document.activeElement && document.activeElement.classList && document.activeElement.classList.contains("card")) {
+    event.preventDefault();
+    openDetail(document.activeElement.dataset.key);
     return;
   }
-  if (!currentWatchId || isTyping) return;
-  if (event.key === "ArrowLeft") { event.preventDefault(); switchEpisode(currentWatchId, currentEpisode - 1); return; }
-  if (event.key === "ArrowRight") { event.preventDefault(); switchEpisode(currentWatchId, currentEpisode + 1); return; }
-  if (event.key.toLowerCase() === "m") { event.preventDefault(); markEpisodeWatched(currentWatchId, currentEpisode); return; }
-  if (event.key.toLowerCase() === "f") { event.preventDefault(); toggleWatchFullscreen(); return; }
-  if (event.shiftKey && event.key.toLowerCase() === "n") { event.preventDefault(); switchEpisode(currentWatchId, currentEpisode + 1); return; }
-  if (event.shiftKey && event.key.toLowerCase() === "p") { event.preventDefault(); switchEpisode(currentWatchId, currentEpisode - 1); return; }
-  if (event.key === " ") { const iframe = document.querySelector("[data-watch-iframe]"); if (iframe) { event.preventDefault(); iframe.focus(); } }
-  if (event.key.toLowerCase() === "w") { 
-    event.preventDefault(); 
-    const entry = getEntry(currentWatchId); 
-    if (entry) { 
-      uiState.watch.currentProvider = (uiState.watch.currentProvider + 1) % STREAM_PROVIDERS.length; 
-      uiState.watch.streamLoaded = false; 
-      uiState.watch.forceFallback = false;
-      renderApp(); 
-      showToast(`Switched to ${STREAM_PROVIDERS[uiState.watch.currentProvider].name}`, "info"); 
-    } 
-    return; 
-  }
+  if (!uiState.watch) return;
+  const media = resolveMedia(uiState.watch.key);
+  if (event.target.matches("input, textarea, select")) return;
+  if (event.key === "ArrowRight" || (event.shiftKey && event.key.toLowerCase() === "n")) { if (media && media.mediaType === "tv") { event.preventDefault(); nextEpisode(); } }
+  else if (event.key === "ArrowLeft") { if (media && media.mediaType === "tv") { event.preventDefault(); prevEpisode(); } }
+  else if (event.shiftKey && event.key.toLowerCase() === "p") { event.preventDefault(); setProvider((uiState.watch.provider + 1) % STREAM_PROVIDERS.length); }
+  else if (event.key.toLowerCase() === "f") { event.preventDefault(); toggleFullscreen(); }
 }
+
+/* Provider postMessage: best-effort auto-next when a player reports "ended". */
 function handleMessage(event) {
-  if (!currentWatchId) return;
-
-  // Accept messages from any of our known provider origins.
-  const knownOrigins = ["megaplay.buzz", "cinetaro.buzz", "vidplus.to"];
-  if (!knownOrigins.some(o => event.origin.includes(o))) return;
-
-  const payload = typeof event.data === "string" ? safeParse(event.data) : event.data;
-  if (!payload || typeof payload !== "object") return;
-
-  // Playback ended — trigger auto-next / completion flow.
-  // MegaPlay fires { event:"complete" }, VidPlus/Cinetaro may fire { event:"ended" }.
-  if (payload.event === "ended"    || payload.type === "ended"    ||
-      payload.event === "complete" || payload.type === "complete") {
-    handlePlaybackEnded();
+  if (!uiState.watch || !settings.autoNext) return;
+  const data = event.data;
+  if (!data || typeof data !== "object") return;
+  const type = data.type || data.event || "";
+  const isEnded = /ended|complete|finish/i.test(String(type)) || (data.data && /ended/i.test(String(data.data.event || "")));
+  if (isEnded) {
+    const media = resolveMedia(uiState.watch.key);
+    if (media && media.mediaType === "tv") nextEpisode();
+    else markMovieWatched();
   }
-  // Note: time / watching-log success signals are handled inside setupWatchPlayer's
-  // onTimeMessage listener so the 30-second timeout can be cancelled from the same closure.
-  // MegaPlay also fires { data: { channel:"megacloud" } } — handled by onTimeMessage
-  // via the watching-log type check.
-}
-function safeParse(value) { try { return JSON.parse(value); } catch (error) { return null; } }
-/* ══ SETTINGS MODAL HELPERS ══════════════════════════════════════ */
-
-/**
- * Called after the settings modal is rendered.
- * - Locks body scroll
- * - Traps focus inside the modal
- * - Wires up Escape key and backdrop click-outside
- */
-function settingsAfterRender() {
-  const card = document.querySelector(".settings-card");
-  if (!card) return;
-
-  // Scroll lock
-  document.body.style.overflow = "hidden";
-
-  // Focus the first focusable element inside the modal
-  const focusable = card.querySelectorAll(
-    'button, input, select, textarea, [tabindex]:not([tabindex="-1"])'
-  );
-  if (focusable.length) focusable[0].focus();
-
-  // Focus trap: keep Tab/Shift+Tab inside the modal
-  function trapFocus(e) {
-    if (!uiState.overlay || uiState.overlay.type !== "settings") {
-      document.removeEventListener("keydown", trapFocus);
-      return;
-    }
-    if (e.key !== "Tab") return;
-    const els = Array.from(card.querySelectorAll(
-      'button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
-    ));
-    if (!els.length) return;
-    const first = els[0];
-    const last  = els[els.length - 1];
-    if (e.shiftKey) {
-      if (document.activeElement === first) { e.preventDefault(); last.focus(); }
-    } else {
-      if (document.activeElement === last)  { e.preventDefault(); first.focus(); }
-    }
-  }
-  document.addEventListener("keydown", trapFocus);
 }
 
-/**
- * Restores body scroll when the settings modal closes.
- * Called from the close-overlay action when overlay was settings.
- */
-function settingsOnClose() {
-  document.body.style.overflow = "";
-}
-
-/**
- * Briefly shows the "✓ Saved" flash badge inside the settings modal.
- */
-function flashSettingsSaved() {
-  const el = document.getElementById("settingsSavedFlash");
-  if (!el) return;
-  el.classList.add("is-visible");
-  clearTimeout(el._flashTimer);
-  el._flashTimer = setTimeout(() => el.classList.remove("is-visible"), 1500);
-}
-
+/* --------------------------------------------------------------- init */
 function init() {
-  loadData(); renderApp();
-  app.addEventListener("click", handleClick); app.addEventListener("input", handleInput); app.addEventListener("change", handleChange); app.addEventListener("focusout", handleFocusOut);
-  window.addEventListener("keydown", handleKeydown); window.addEventListener("message", handleMessage);
-  window.addEventListener("resize", () => document.querySelectorAll("[data-row-track]").forEach(track => syncScrollButtons(track.id)));
-  if (uiState.search.query.trim().length >= 2) scheduleAniListSearch(uiState.search.query);
-
-  // Create a single persistent importInput outside #app so renderApp() never
-  // destroys it. A detached file input loses its change event when the DOM is
-  // replaced, which silently swallows the import. Attaching the listener
-  // directly (not via delegation) guarantees it always fires.
-  const importInput = document.createElement("input");
-  importInput.id = "importInput";
-  importInput.type = "file";
-  importInput.accept = ".json";
-  importInput.style.cssText = "display:none;position:fixed;top:-9999px;left:-9999px;";
-  document.body.appendChild(importInput);
-  importInput.addEventListener("change", importData);
-
-  /* FIX #4: is-scrolling class hides hover panels while scrolling */
-  let _scrollTimeout = 0;
-  document.addEventListener("scroll", () => {
-    document.body.classList.add("is-scrolling");
-    window.clearTimeout(_scrollTimeout);
-    _scrollTimeout = window.setTimeout(() => document.body.classList.remove("is-scrolling"), 200);
-  }, { passive: true, capture: true });
+  loadSettings();
+  loadData();
+  app.addEventListener("click", handleClick);
+  app.addEventListener("input", handleInput);
+  app.addEventListener("change", handleChange);
+  app.addEventListener("focusout", handleFocusOut);
+  document.addEventListener("keydown", handleKeydown);
+  window.addEventListener("message", handleMessage);
+  window.addEventListener("resize", () => document.querySelectorAll("[data-row-track]").forEach((el) => syncScrollButtons(el.id)));
+  renderApp();
+  if (hasKey()) { loadGenres(); loadPage("home"); }
 }
-init();
+
+if (typeof document !== "undefined" && app) init();
+
+/* Exports for tests (no-op in browser) */
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { normalizeEntry, normalizeLibrary, normalizeMedia, STREAM_PROVIDERS, buildStreamUrl, STATUS_OPTIONS };
+}
