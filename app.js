@@ -963,8 +963,12 @@ function renderWatchView() {
   const isTv = media.mediaType === "tv";
   const detail = detailCache[w.key];
   const streamUrl = buildStreamUrl(entry, w.provider, w.season, w.episode);
-  const providerBtns = STREAM_PROVIDERS.map((p, i) =>
-    `<button type="button" class="seg ${i === w.provider ? "is-active" : ""}" data-action="set-provider" data-index="${i}">${p.name}</button>`
+  const serverCards = STREAM_PROVIDERS.map((p, i) =>
+    `<button type="button" class="server ${i === w.provider ? "is-active" : ""}" data-action="set-provider" data-index="${i}" title="${escapeHtml(p.name)}">
+      <span class="server__icon">${i === w.provider ? "▶" : i + 1}</span>
+      <span class="server__body"><span class="server__name">${escapeHtml(p.name)}</span><span class="server__sub">${i === 0 ? "Recommended" : `Server ${i + 1}`}</span></span>
+      <span class="server__dot"></span>
+    </button>`
   ).join("");
 
   const seasons = detail && isTv ? detail.number_of_seasons : (entry.totalSeasons || 1);
@@ -978,8 +982,16 @@ function renderWatchView() {
     .map((r) => normalizeMedia(r, r.media_type || media.mediaType)).filter(Boolean).filter((m) => m.key !== w.key).slice(0, 12);
 
   const heading = isTv ? `S${w.season} · E${w.episode}${currentEpisodeName(season, w.episode) ? ` — ${currentEpisodeName(season, w.episode)}` : ""}` : (media.year ? `${media.year}` : "");
+  const overview = (detail && detail.overview) || media.overview || "";
+  const runtime = detail ? (isTv ? (detail.episode_run_time && detail.episode_run_time[0]) : detail.runtime) : 0;
+  const ratingTxt = formatVote(media.voteAverage);
+  const genreTags = genreNames(media.genreIds, 4);
+  const metaChips = [typeLabel(media.mediaType), media.year || "", ratingTxt ? `★ ${ratingTxt}` : "", isTv ? formatCount(seasons, "season") : formatRuntime(runtime)].filter(Boolean);
+  const ambient = img(media.backdrop, "w780");
+  const loadPoster = img(media.poster, "w300");
 
   return `<div class="watch">
+    <div class="watch__ambient">${ambient ? `<img src="${ambient}" alt="">` : ""}</div>
     <div class="watch__topbar">
       <button type="button" class="watch__back" data-action="close-watch">‹ Back</button>
       <div class="watch__heading"><span class="watch__title">${escapeHtml(media.title)}</span><span class="watch__sub">${escapeHtml(heading)}</span></div>
@@ -989,29 +1001,42 @@ function renderWatchView() {
       </div>
     </div>
     <div class="watch__stage">
-      <div class="watch__player" id="watchPlayer">
-        ${streamUrl
-          ? `<iframe id="streamFrame" src="${streamUrl}" title="Player" allow="autoplay; encrypted-media; fullscreen; picture-in-picture" allowfullscreen referrerpolicy="origin"></iframe><div class="watch__loading" id="watchLoading"><div class="spinner"></div><span>Loading ${escapeHtml(STREAM_PROVIDERS[w.provider].name)}…</span></div>`
-          : `<div class="watch__loading">Preparing stream…</div>`}
+      <div class="watch__screen">
+        <div class="watch__player" id="watchPlayer">
+          ${streamUrl
+            ? `<iframe id="streamFrame" src="${streamUrl}" title="Player" allow="autoplay; encrypted-media; fullscreen; picture-in-picture" allowfullscreen referrerpolicy="origin"></iframe><div class="watch__loading" id="watchLoading"><div class="watch__loading-card">${loadPoster ? `<img class="watch__loading-poster" src="${loadPoster}" alt="">` : ""}<div class="spinner"></div><div class="watch__loading-text">Loading ${escapeHtml(STREAM_PROVIDERS[w.provider].name)}…</div><div class="watch__loading-sub">Server ${w.provider + 1} of ${STREAM_PROVIDERS.length}</div></div></div>`
+            : `<div class="watch__loading"><div class="watch__loading-card"><div class="spinner"></div><div class="watch__loading-text">Preparing stream…</div></div></div>`}
+        </div>
       </div>
-      <div class="watch__controls">
-        <div class="watch__providers"><span class="watch__label">Source</span><div class="seg-group">${providerBtns}</div></div>
-        <div class="watch__provider-hint">If a source won't play, switch to another. Auto-fallback runs after 30s.</div>
+      <div class="serverbar">
+        <div class="serverbar__head"><span class="serverbar__title">⚡ Streaming servers</span><span class="serverbar__hint">Pick a source — auto-fallback after 30s</span></div>
+        <div class="server-list">${serverCards}</div>
+      </div>
+    </div>
+    <div class="watch__info">
+      <h1 class="watch__info-title">${escapeHtml(media.title)}</h1>
+      ${isTv ? `<div class="watch__info-ep">${escapeHtml(heading)}</div>` : ""}
+      <div class="watch__chips">${metaChips.map((c) => `<span class="wchip">${escapeHtml(String(c))}</span>`).join("")}${genreTags.map((g) => `<span class="wchip wchip--genre">${escapeHtml(g)}</span>`).join("")}</div>
+      ${overview ? `<p class="watch__info-overview">${escapeHtml(overview.slice(0, 280))}${overview.length > 280 ? "…" : ""}</p>` : ""}
+      <div class="watch__info-actions">
+        ${isTv ? `<button type="button" class="btn btn--play" data-action="next-episode">Next episode ›</button>` : `<button type="button" class="btn ${entry.watched ? "btn--ghost" : "btn--play"}" data-action="mark-watched">${entry.watched ? "✓ Watched" : "✓ Mark watched"}</button>`}
+        <button type="button" class="btn btn--ghost" data-action="toggle-list" data-key="${w.key}">${entry ? "✓ In list" : "＋ My List"}</button>
+        <button type="button" class="btn btn--ghost" data-action="open-detail" data-key="${w.key}">ⓘ Details</button>
       </div>
     </div>
     ${isTv ? `<div class="watch__episodes">
       <div class="watch__episodes-head">
-        <select id="seasonSelect" class="select">${seasonOptions}</select>
-        <div class="watch__ep-nav">
-          <button type="button" class="btn btn--ghost btn--sm" data-action="prev-episode">‹ Prev</button>
-          <button type="button" class="btn btn--ghost btn--sm" data-action="next-episode">Next ›</button>
+        <div class="watch__episodes-title">Episodes</div>
+        <div class="watch__episodes-tools">
+          <select id="seasonSelect" class="select">${seasonOptions}</select>
+          <div class="watch__ep-nav">
+            <button type="button" class="btn btn--ghost btn--sm" data-action="prev-episode">‹ Prev</button>
+            <button type="button" class="btn btn--ghost btn--sm" data-action="next-episode">Next ›</button>
+          </div>
         </div>
       </div>
       ${episodeList}
-    </div>` : `<div class="watch__movie-actions">
-      <button type="button" class="btn ${entry.watched ? "btn--ghost" : "btn--play"}" data-action="mark-watched">${entry.watched ? "✓ Watched" : "Mark as watched"}</button>
-      <button type="button" class="btn btn--ghost" data-action="toggle-list" data-key="${w.key}">${entry ? "✓ In list" : "＋ My List"}</button>
-    </div>`}
+    </div>` : ""}
     ${recs.length ? `<div class="watch__recs"><h2 class="row__title">More like this</h2><div class="grid grid--compact">${recs.map(renderCard).join("")}</div></div>` : ""}
   </div>`;
 }
