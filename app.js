@@ -850,11 +850,6 @@ function renderSettingsOverlay() {
       <div class="settings">
         <h2>Settings</h2>
         <div class="settings__group">
-          <label class="settings__label" for="setKey">TMDB API key (v3)</label>
-          <input id="setKey" class="input" type="password" placeholder="Paste your key" value="${escapeHtml(settings.tmdbKey)}" autocomplete="off">
-          <p class="settings__hint">Get one free at <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">themoviedb.org/settings/api</a>. Stored only in this browser.</p>
-        </div>
-        <div class="settings__group">
           <label class="settings__label" for="setRegion">Region</label>
           <select id="setRegion" class="select">
             ${["US", "GB", "CA", "AU", "IN", "DE", "FR", "ES", "BR", "JP", "KR", "MX"].map((r) => `<option value="${r}" ${settings.region === r ? "selected" : ""}>${r}</option>`).join("")}
@@ -1374,11 +1369,9 @@ function handleClick(event) {
 }
 
 function handleSaveSettings() {
-  const keyEl = document.getElementById("setKey");
   const regionEl = document.getElementById("setRegion");
   const autoEl = document.getElementById("setAutoNext");
   const themeEl = document.getElementById("setTheme");
-  settings.tmdbKey = keyEl ? keyEl.value.trim() : settings.tmdbKey;
   settings.region = regionEl ? regionEl.value : settings.region;
   settings.autoNext = autoEl ? autoEl.checked : settings.autoNext;
   settings.theme = themeEl && themeEl.checked ? "light" : "dark";
