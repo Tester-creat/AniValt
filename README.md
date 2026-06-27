@@ -19,7 +19,7 @@ That's it — the home page fills with trending titles immediately.
 ## Features
 
 ### Streaming & Playback
-- **4 streaming providers** — VidLink, VidSrc, 2Embed, and AutoEmbed, all keyed by TMDB ID
+- **8 streaming servers** — VidLink, VidFast, VidSrc, VidSrc.cc, 2Embed, SuperEmbed, AutoEmbed, and EmbedAPI, all keyed by TMDB ID
 - **Auto-provider fallback** — if a provider fails to load within 30 seconds, the next is tried automatically
 - **Manual provider switching** — cycle providers from the watch view
 - **Movies & episodes** — single embed for movies; season + episode selector for series

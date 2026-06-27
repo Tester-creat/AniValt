@@ -376,6 +376,8 @@ function resolveMedia(key) {
 }
 
 /* ----------------------------------------------------------- streaming */
+/* Multi-server lineup (TMDB-ID embeds). Order = default + auto-fallback order.
+   Keep VidLink first; users can switch to any server in the watch view. */
 const STREAM_PROVIDERS = [
   {
     name: "VidLink",
@@ -383,9 +385,19 @@ const STREAM_PROVIDERS = [
     tv: (id, s, e) => `https://vidlink.pro/tv/${id}/${s}/${e}`,
   },
   {
+    name: "VidFast",
+    movie: (id) => `https://vidfast.pro/movie/${id}`,
+    tv: (id, s, e) => `https://vidfast.pro/tv/${id}/${s}/${e}`,
+  },
+  {
     name: "VidSrc",
     movie: (id) => `https://vidsrc.to/embed/movie/${id}`,
     tv: (id, s, e) => `https://vidsrc.to/embed/tv/${id}/${s}/${e}`,
+  },
+  {
+    name: "VidSrc.cc",
+    movie: (id) => `https://vidsrc.cc/v2/embed/movie/${id}`,
+    tv: (id, s, e) => `https://vidsrc.cc/v2/embed/tv/${id}/${s}/${e}`,
   },
   {
     name: "2Embed",
@@ -393,9 +405,19 @@ const STREAM_PROVIDERS = [
     tv: (id, s, e) => `https://www.2embed.cc/embedtv/${id}&s=${s}&e=${e}`,
   },
   {
+    name: "SuperEmbed",
+    movie: (id) => `https://multiembed.mov/?video_id=${id}&tmdb=1`,
+    tv: (id, s, e) => `https://multiembed.mov/?video_id=${id}&tmdb=1&s=${s}&e=${e}`,
+  },
+  {
     name: "AutoEmbed",
     movie: (id) => `https://player.autoembed.cc/embed/movie/${id}`,
     tv: (id, s, e) => `https://player.autoembed.cc/embed/tv/${id}/${s}/${e}`,
+  },
+  {
+    name: "EmbedAPI",
+    movie: (id) => `https://player.embed-api.stream/?id=${id}`,
+    tv: (id, s, e) => `https://player.embed-api.stream/?id=${id}&s=${s}&e=${e}`,
   },
 ];
 
