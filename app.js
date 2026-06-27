@@ -91,6 +91,7 @@ const mediaIndex = {};   // key -> normalized media (everything we've seen)
 const detailCache = {};  // key -> full detail object
 const seasonCache = {};  // `${key}-${season}` -> { episodes:[...] }
 const recCache = {};     // key -> [media]
+const logoCache = {};    // key -> logo file_path ("" = none, undefined = not fetched)
 
 let userData = {};       // library, keyed by `${mediaType}-${id}`
 let settings = { tmdbKey: "", theme: "dark", region: "US", autoNext: true };
@@ -318,7 +319,7 @@ async function loadPage(page) {
     state.rows = rows.filter((r) => r.items.length);
     state.status = "ready";
     renderApp();
-    if (page === "home") loadHomeRecommendations();
+    if (page === "home") { loadHomeRecommendations(); loadHeroLogos(pickHeroItems(state.rows)); }
   } catch (err) {
     state.status = err.message === "BAD_KEY" ? "badkey" : "error";
     renderApp();
@@ -346,6 +347,34 @@ async function loadHomeRecommendations() {
     catalog.home.recRows = rows;
     if (uiState.tab === "home" && !uiState.watch) renderApp();
   } catch { /* recommendations are best-effort */ }
+}
+
+/* TMDB title-logo treatments — premium hero/detail headers. */
+function pickLogo(logos) {
+  if (!Array.isArray(logos) || !logos.length) return "";
+  const en = logos.filter((l) => l.iso_639_1 === "en");
+  const pool = en.length ? en : logos;
+  const png = pool.filter((l) => (l.file_path || "").endsWith(".png"));
+  const chosen = (png.length ? png : pool).slice().sort((a, b) => (b.vote_average || 0) - (a.vote_average || 0))[0];
+  return chosen ? chosen.file_path : "";
+}
+function logoUrl(path) {
+  if (!path) return "";
+  return img(path, path.endsWith(".svg") ? "original" : "w500");
+}
+async function fetchLogo(media) {
+  if (!media || logoCache[media.key] !== undefined) return logoCache[media.key];
+  try {
+    const data = await tmdbFetch(`/${media.mediaType}/${media.id}/images`, { include_image_language: "en,null" });
+    logoCache[media.key] = pickLogo(data.logos) || "";
+  } catch { logoCache[media.key] = ""; }
+  return logoCache[media.key];
+}
+async function loadHeroLogos(items) {
+  const missing = items.filter((m) => logoCache[m.key] === undefined);
+  if (!missing.length) return;
+  await Promise.all(missing.map(fetchLogo));
+  if (uiState.tab === "home" && !uiState.watch && !uiState.overlay) renderApp();
 }
 
 async function fetchDetail(key) {
@@ -466,6 +495,22 @@ function renderMobileNav() {
   </nav>`;
 }
 
+function renderFooter() {
+  const links = [["movies", "Movies"], ["tv", "TV Shows"], ["animation", "Animation"], ["mylist", "My List"], ["stats", "Stats"]];
+  return `<footer class="footer">
+    <div class="footer__top">
+      <button type="button" class="footer__brand" data-action="tab" data-tab="home"><span class="brand__mark">CV</span> CineVault</button>
+      <nav class="footer__links">${links.map(([t, l]) => `<button type="button" data-action="tab" data-tab="${t}">${l}</button>`).join("")}</nav>
+    </div>
+    <p class="footer__legal">This product uses the TMDB API but is not endorsed or certified by <a href="https://www.themoviedb.org" target="_blank" rel="noopener">TMDB</a>. Metadata and artwork © TMDB. Playback is delegated to third-party embed providers; CineVault hosts no media and stores your library only in this browser.</p>
+  </footer>`;
+}
+
+function syncTopbar() {
+  const tb = document.getElementById("topbar");
+  if (tb) tb.classList.toggle("is-scrolled", (window.scrollY || 0) > 20);
+}
+
 /* --------------------------------------------------------------- cards */
 function libraryBadge(media) {
   const entry = getEntry(media.key);
@@ -572,7 +617,7 @@ function renderHero(items) {
           ${m.voteAverage ? `<span class="hero__dot">★ ${formatVote(m.voteAverage)}</span>` : ""}
           ${genreNames(m.genreIds, 2).map((g) => `<span class="hero__dot">${escapeHtml(g)}</span>`).join("")}
         </div>
-        <h1 class="hero__title">${escapeHtml(m.title)}</h1>
+        ${logoCache[m.key] ? `<img class="hero__logo" src="${logoUrl(logoCache[m.key])}" alt="${escapeHtml(m.title)}">` : `<h1 class="hero__title">${escapeHtml(m.title)}</h1>`}
         <p class="hero__overview">${escapeHtml((m.overview || "").slice(0, 220))}${(m.overview || "").length > 220 ? "…" : ""}</p>
         <div class="hero__actions">
           <button type="button" class="btn btn--play" data-action="open-watch" data-key="${m.key}">▶ Play</button>
@@ -650,7 +695,37 @@ function renderCatalogPage(page, heading, subtitle) {
     heroHtml = `<div class="page-hero"><h1>${escapeHtml(heading)}</h1>${subtitle ? `<p>${escapeHtml(subtitle)}</p>` : ""}</div>`;
   }
   const continueRow = page === "home" ? renderContinueSection() : "";
-  return `<div class="catalog">${heroHtml}${continueRow}${rows.map(renderRow).join("")}</div>`;
+  const top10 = page === "home" ? renderTop10Section((state.rows.find((r) => r.id === "trending") || { items: [] }).items) : "";
+  return `<div class="catalog">${heroHtml}${continueRow}${top10}${rows.map(renderRow).join("")}</div>`;
+}
+
+function renderRankCard(media, rank) {
+  const poster = img(media.poster, "w342");
+  const inList = Boolean(getEntry(media.key));
+  return `<article class="rank-card" data-action="open-detail" data-key="${media.key}" tabindex="0" role="button" aria-label="Number ${rank}, ${escapeHtml(media.title)}">
+    <span class="rank-card__num">${rank}</span>
+    <div class="rank-card__poster">
+      ${poster ? `<img loading="lazy" src="${poster}" alt="${escapeHtml(media.title)}">` : `<div class="card__noimg">${escapeHtml(media.title)}</div>`}
+      <div class="card__hover"><div class="card__hover-actions">
+        <button type="button" class="round-btn round-btn--play" data-action="open-watch" data-key="${media.key}" title="Play">▶</button>
+        <button type="button" class="round-btn" data-action="toggle-list" data-key="${media.key}" title="My List">${inList ? "✓" : "+"}</button>
+      </div></div>
+    </div>
+  </article>`;
+}
+function renderTop10Section(items) {
+  const top = items.slice(0, 10);
+  if (top.length < 10) return "";
+  const trackId = "row-top10";
+  return `<section class="row row--top10">
+    <div class="row__head"><h2 class="row__title">Top 10 This Week</h2>
+      <div class="row__controls">
+        <button type="button" class="scroll-btn" data-action="row-scroll" data-target="${trackId}" data-dir="prev" aria-label="Scroll left">‹</button>
+        <button type="button" class="scroll-btn" data-action="row-scroll" data-target="${trackId}" data-dir="next" aria-label="Scroll right">›</button>
+      </div>
+    </div>
+    <div class="row__viewport" id="${trackId}" data-row-track="${trackId}"><div class="row__track">${top.map((m, i) => renderRankCard(m, i + 1)).join("")}</div></div>
+  </section>`;
 }
 
 function renderContinueSection() {
@@ -760,6 +835,10 @@ function openDetail(key) {
   uiState.overlay = { type: "detail", key, trailer: false };
   uiState.detailLoading = !detailCache[key];
   renderApp();
+  if (logoCache[key] === undefined) {
+    const m = resolveMedia(key);
+    if (m) fetchLogo(m).then(() => { if (uiState.overlay && uiState.overlay.key === key) renderApp(); });
+  }
   if (!detailCache[key]) {
     fetchDetail(key).then(() => {
       uiState.detailLoading = false;
@@ -818,7 +897,7 @@ function renderDetailOverlay() {
           ? `<div class="modal__trailer"><iframe src="${YT_BASE}${trailer.key}?autoplay=1&rel=0" title="Trailer" allow="autoplay; encrypted-media; fullscreen" allowfullscreen></iframe></div>`
           : `<div class="modal__backdrop">${backdrop ? `<img src="${backdrop}" alt="">` : ""}</div><div class="modal__hero-scrim"></div>`}
         <div class="modal__hero-body">
-          <h2 class="modal__title">${escapeHtml(title)}</h2>
+          ${logoCache[key] ? `<img class="modal__logo" src="${logoUrl(logoCache[key])}" alt="${escapeHtml(title)}">` : `<h2 class="modal__title">${escapeHtml(title)}</h2>`}
           <div class="modal__actions">
             <button type="button" class="btn btn--play" data-action="open-watch" data-key="${key}">▶ Play</button>
             ${trailer ? `<button type="button" class="btn btn--ghost" data-action="${uiState.overlay.trailer ? "stop-trailer" : "play-trailer"}" data-key="${key}">${uiState.overlay.trailer ? "■ Stop" : "🎬 Trailer"}</button>` : ""}
@@ -1297,6 +1376,7 @@ function renderApp() {
   } else {
     parts.push(renderTopNav());
     parts.push(`<main class="main">${renderCurrentPage()}</main>`);
+    parts.push(renderFooter());
     parts.push(renderMobileNav());
   }
   if (uiState.overlay) parts.push(renderOverlay());
@@ -1306,6 +1386,7 @@ function renderApp() {
 
 function afterRender() {
   document.body.classList.toggle("no-scroll", Boolean(uiState.overlay));
+  syncTopbar();
   if (!uiState.watch && !uiState.overlay && document.getElementById("hero")) startHeroAuto();
   else clearInterval(heroState.timer);
 
@@ -1510,6 +1591,7 @@ function init() {
   document.addEventListener("keydown", handleKeydown);
   window.addEventListener("message", handleMessage);
   window.addEventListener("resize", () => document.querySelectorAll("[data-row-track]").forEach((el) => syncScrollButtons(el.id)));
+  window.addEventListener("scroll", syncTopbar, { passive: true });
   renderApp();
   if (hasKey()) { loadGenres(); loadPage("home"); }
 }

@@ -73,13 +73,21 @@ a:hover { text-decoration: underline; }
   justify-content: space-between;
   gap: 16px;
   padding: 0 clamp(16px, 4vw, 56px);
-  background: linear-gradient(180deg, rgba(8, 8, 11, 0.92), rgba(8, 8, 11, 0.55) 70%, transparent);
-  backdrop-filter: blur(14px) saturate(140%);
-  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  background: linear-gradient(180deg, rgba(8, 8, 11, 0.78), rgba(8, 8, 11, 0.2) 70%, transparent);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
   border-bottom: 1px solid transparent;
-  transition: background 0.3s var(--ease), border-color 0.3s var(--ease);
+  transition: background 0.3s var(--ease), border-color 0.3s var(--ease), box-shadow 0.3s var(--ease), backdrop-filter 0.3s var(--ease);
 }
-[data-theme="light"] .topbar { background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.7)); }
+.topbar.is-scrolled {
+  background: rgba(10, 10, 14, 0.9);
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  border-bottom-color: var(--line);
+  box-shadow: 0 6px 26px rgba(0, 0, 0, 0.4);
+}
+[data-theme="light"] .topbar { background: linear-gradient(180deg, rgba(243, 243, 245, 0.85), rgba(243, 243, 245, 0.2) 70%, transparent); }
+[data-theme="light"] .topbar.is-scrolled { background: rgba(255, 255, 255, 0.92); box-shadow: 0 6px 26px rgba(0, 0, 0, 0.1); }
 .topbar__left { display: flex; align-items: center; gap: 28px; min-width: 0; }
 .topbar__right { display: flex; align-items: center; gap: 12px; }
 
@@ -161,7 +169,10 @@ a:hover { text-decoration: underline; }
 }
 .hero__slide.is-active { opacity: 1; visibility: visible; z-index: 1; }
 .hero__bg { position: absolute; inset: 0; }
-.hero__bg img { width: 100%; height: 100%; object-fit: cover; object-position: center 18%; transform: scale(1.04); }
+.hero__bg img { width: 100%; height: 100%; object-fit: cover; object-position: center 18%; transform: scale(1.05); }
+.hero__slide.is-active .hero__bg img { animation: kenburns 20s ease-out forwards; }
+@keyframes kenburns { from { transform: scale(1.05); } to { transform: scale(1.16) translateY(-1.5%); } }
+.hero__logo { max-width: min(440px, 72%); max-height: 175px; object-fit: contain; object-position: left bottom; filter: drop-shadow(0 8px 28px rgba(0, 0, 0, 0.75)); }
 .hero__scrim {
   position: absolute; inset: 0;
   background:
@@ -335,6 +346,7 @@ a:hover { text-decoration: underline; }
 .modal__trailer iframe { width: 100%; height: 100%; border: 0; }
 .modal__hero-body { position: absolute; left: clamp(20px, 4vw, 44px); right: 44px; bottom: 26px; z-index: 2; }
 .modal__title { font-size: clamp(26px, 4vw, 44px); font-weight: 900; margin: 0 0 16px; letter-spacing: -1px; text-shadow: 0 3px 18px rgba(0, 0, 0, 0.7); }
+.modal__logo { max-width: min(56%, 320px); max-height: 110px; object-fit: contain; object-position: left bottom; margin-bottom: 16px; filter: drop-shadow(0 6px 20px rgba(0, 0, 0, 0.7)); }
 .modal__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .modal__body { padding: clamp(20px, 3vw, 36px); }
 .modal__loading { color: var(--text-faint); padding-bottom: 12px; }
@@ -511,6 +523,34 @@ a:hover { text-decoration: underline; }
 .toast__title { font-weight: 800; font-size: 13px; margin-bottom: 2px; }
 .toast__msg { color: var(--text-dim); font-size: 13.5px; line-height: 1.4; }
 
+/* --------------------------------------------------------------- top 10 */
+.row--top10 .row__viewport { padding-top: 14px; }
+.row--top10 .row__track { gap: 6px; align-items: center; }
+.rank-card { display: flex; align-items: center; flex: 0 0 auto; background: none; border: none; padding: 0; }
+.rank-card__num {
+  flex: 0 0 auto; font-size: clamp(110px, 14vw, 180px); font-weight: 900; line-height: 0.72;
+  color: var(--bg); -webkit-text-stroke: 3px var(--surface-3); margin-right: -0.16em;
+  font-family: "Inter", sans-serif; letter-spacing: -0.04em; user-select: none;
+  transition: -webkit-text-stroke-color 0.25s;
+}
+.rank-card:hover .rank-card__num { -webkit-text-stroke-color: var(--red); }
+.rank-card__poster { position: relative; flex: 0 0 auto; width: clamp(112px, 12vw, 152px); aspect-ratio: 2 / 3; border-radius: 8px; overflow: hidden; background: var(--surface-2); box-shadow: 0 10px 24px rgba(0, 0, 0, 0.45); transition: transform 0.3s var(--ease); }
+.rank-card__poster img { width: 100%; height: 100%; object-fit: cover; }
+.rank-card:hover .rank-card__poster { transform: scale(1.05); }
+.rank-card:hover .card__hover { opacity: 1; }
+.rank-card:focus-visible { outline: none; }
+.rank-card:focus-visible .rank-card__poster { outline: 2px solid var(--red-bright); outline-offset: 3px; }
+
+/* --------------------------------------------------------------- footer */
+.footer { position: relative; z-index: 2; margin-top: 48px; padding: 40px clamp(16px, 4vw, 56px) 64px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 18px; background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.25)); }
+.footer__top { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
+.footer__brand { display: flex; align-items: center; gap: 10px; background: none; border: none; color: var(--text); font-weight: 800; font-size: 18px; cursor: pointer; }
+.footer__brand .brand__mark { width: 32px; height: 32px; font-size: 13px; }
+.footer__links { display: flex; flex-wrap: wrap; gap: 20px; }
+.footer__links button { background: none; border: none; color: var(--text-dim); font-size: 14px; font-weight: 600; cursor: pointer; transition: color 0.2s; }
+.footer__links button:hover { color: var(--text); }
+.footer__legal { color: var(--text-faint); font-size: 12.5px; line-height: 1.65; max-width: 820px; margin: 0; }
+
 /* --------------------------------------------------------------- mobile nav */
 .mobile-nav { display: none; }
 
@@ -528,7 +568,8 @@ a:hover { text-decoration: underline; }
   .searchbox__input { width: 0; }
   .searchbox:focus-within .searchbox__input { width: 100%; }
   .brand__name { display: none; }
-  .main { padding-bottom: 86px; }
+  .main { padding-bottom: 12px; }
+  .footer { padding-bottom: 110px; }
   .ep__thumb { width: 110px; }
   .ep__overview { display: none; }
   .mobile-nav {
